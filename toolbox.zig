@@ -20,7 +20,7 @@ pub fn copy (src: [] const u8, dest: [] const u8) !void
   try std.fs.copyFileAbsolute (src, dest, .{});
 }
 
-pub fn exec (builder: *std.Build, proc: struct { argv: [] const [] const u8, cwd: ?[] const u8 = null, }) !void
+pub fn exec (builder: *std.Build, proc: struct { argv: [] const [] const u8, cwd: ?[] const u8 = null, env: ?*const std.process.EnvMap = null, }) !void
 {
   var stdout = std.ArrayList (u8).init (builder.allocator);
   var stderr = std.ArrayList (u8).init (builder.allocator);
@@ -34,6 +34,7 @@ pub fn exec (builder: *std.Build, proc: struct { argv: [] const [] const u8, cwd
   child.stdout_behavior = .Pipe;
   child.stderr_behavior = .Pipe;
   child.cwd = proc.cwd;
+  child.env_map = proc.env;
 
   try child.spawn ();
   try child.collectOutput (&stdout, &stderr, std.math.maxInt (usize));
