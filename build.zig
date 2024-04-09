@@ -10,7 +10,8 @@ pub fn is_source_file (name: [] const u8) bool
 pub fn is_header_file (name: [] const u8) bool
 {
   return std.mem.endsWith (u8, name, ".h") or
-    std.mem.endsWith (u8, name, ".hpp");
+    std.mem.endsWith (u8, name, ".hpp") or
+    std.mem.endsWith (u8, name, ".hpp11");
 }
 
 pub fn write (path: [] const u8, name: [] const u8, content: [] const u8) !void
