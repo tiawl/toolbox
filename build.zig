@@ -1,5 +1,18 @@
 const std = @import ("std");
 
+pub fn is_source_file (name: [] const u8) bool
+{
+  return std.mem.endsWith (u8, name, ".c") or
+    std.mem.endsWith (u8, name, ".cc") or
+    std.mem.endsWith (u8, name, ".cpp");
+}
+
+pub fn is_header_file (name: [] const u8) bool
+{
+  return std.mem.endsWith (u8, name, ".h") or
+    std.mem.endsWith (u8, name, ".hpp");
+}
+
 pub fn write (path: [] const u8, name: [] const u8, content: [] const u8) !void
 {
   std.debug.print ("[write {s}/{s}]\n", .{ path, name, });
