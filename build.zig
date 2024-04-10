@@ -1,17 +1,35 @@
 const std = @import ("std");
 
+pub fn is_c_source_file (name: [] const u8) bool
+{
+  return std.mem.endsWith (u8, name, ".c");
+}
+
+pub fn is_cpp_source_file (name: [] const u8) bool
+{
+  return std.mem.endsWith (u8, name, ".cc") or
+   std.mem.endsWith (u8, name, ".cpp");
+}
+
 pub fn is_source_file (name: [] const u8) bool
 {
-  return std.mem.endsWith (u8, name, ".c") or
-    std.mem.endsWith (u8, name, ".cc") or
-    std.mem.endsWith (u8, name, ".cpp");
+  return is_c_source_file (name) or is_cpp_source_file (name);
+}
+
+pub fn is_c_header_file (name: [] const u8) bool
+{
+  return std.mem.endsWith (u8, name, ".h");
+}
+
+pub fn is_cpp_header_file (name: [] const u8) bool
+{
+  return std.mem.endsWith (u8, name, ".hpp") or
+    std.mem.endsWith (u8, name, ".hpp11");
 }
 
 pub fn is_header_file (name: [] const u8) bool
 {
-  return std.mem.endsWith (u8, name, ".h") or
-    std.mem.endsWith (u8, name, ".hpp") or
-    std.mem.endsWith (u8, name, ".hpp11");
+  return is_c_header_file (name) or is_cpp_header_file (name);
 }
 
 pub fn write (path: [] const u8, name: [] const u8, content: [] const u8) !void
