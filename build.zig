@@ -57,7 +57,7 @@ pub fn addSource (lib: *std.Build.Step.Compile, root_path: [] const u8,
     &.{ root_path, base_path, });
   std.debug.print ("[{s} source] {s}\n", .{ lib.name, source_path, });
   lib.addCSourceFile (.{
-    .path = try std.fs.path.relative (builder.allocator,
+    .file = try std.fs.path.relative (builder.allocator,
       builder.build_root.path.?, source_path),
     .flags = flags,
   });
