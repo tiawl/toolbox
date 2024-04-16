@@ -45,7 +45,7 @@ pub fn addInclude (lib: *std.Build.Step.Compile, path: [] const u8) void
   const builder = lib.step.owner;
   const lazy = std.Build.LazyPath { .path = builder.dupe (path), };
   std.debug.print ("[{s} include] {s}\n",
-    { lib.name, lazy.getPath (builder), });
+    .{ lib.name, lazy.getPath (builder), });
   lib.addIncludePath (lazy);
 }
 
