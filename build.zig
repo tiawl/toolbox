@@ -115,10 +115,11 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
     try child.collectOutput (&stdout, &stderr, std.math.maxInt (usize));
     term = try child.wait ();
   }
+  const exit_success = std.ChildProcess.Term { .Exited = 0, };
   if (stdout.items.len > 0) std.debug.print ("{s}", .{ stdout.items, });
-  if (stderr.items.len > 0 and !std.meta.eql (term, .{ .Exited = 0, }))
+  if (stderr.items.len > 0 and !std.meta.eql (term, exit_success))
     std.debug.print ("\x1b[31m{s}\x1b[0m", .{ stderr.items, });
-  if (proc.wait == null) try std.testing.expectEqual (term, .{ .Exited = 0, });
+  if (proc.wait == null) try std.testing.expectEqual (term, exit_success);
 }
 
 pub fn clone (builder: *std.Build, url: [] const u8, tag: [] const u8,
