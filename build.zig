@@ -124,7 +124,7 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
 pub fn clone (builder: *std.Build, url: [] const u8, tag: [] const u8,
   path: [] const u8) !void
 {
-  try toolbox.run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
+  try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
     "--branch", tag, "--depth", "1", url, path, }, });
 }
 
