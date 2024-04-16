@@ -1,38 +1,70 @@
 const std = @import ("std");
 
-pub fn is_c_source_file (name: [] const u8) bool
+pub fn isCSource (name: [] const u8) bool
 {
   return std.mem.endsWith (u8, name, ".c");
 }
 
-pub fn is_cpp_source_file (name: [] const u8) bool
+pub fn isCppSource (name: [] const u8) bool
 {
   return std.mem.endsWith (u8, name, ".cc") or
    std.mem.endsWith (u8, name, ".cpp");
 }
 
-pub fn is_source_file (name: [] const u8) bool
+pub fn isSource (name: [] const u8) bool
 {
-  return is_c_source_file (name) or is_cpp_source_file (name);
+  return isCSource (name) or isCppSource (name);
 }
 
-pub fn is_c_header_file (name: [] const u8) bool
+pub fn isCHeader (name: [] const u8) bool
 {
   return std.mem.endsWith (u8, name, ".h");
 }
 
-pub fn is_cpp_header_file (name: [] const u8) bool
+pub fn isCppHeader (name: [] const u8) bool
 {
   return std.mem.endsWith (u8, name, ".hpp") or
     std.mem.endsWith (u8, name, ".hpp11");
 }
 
-pub fn is_header_file (name: [] const u8) bool
+pub fn isHeader (name: [] const u8) bool
 {
-  return is_c_header_file (name) or is_cpp_header_file (name);
+  return isCHeader (name) or isCppHeader (name);
 }
 
-pub fn write (path: [] const u8, name: [] const u8, content: [] const u8) !void
+pub fn addHeader (lib: *std.Build.Step.Compile, source: [] const u8,
+  dest: [] const u8, ext: [] const [] const u8) void
+{
+  std.debug.print ("[{s} header] {s}\n", .{ lib.name, source, });
+  lib.installHeadersDirectory (.{ .path = source, }, dest,
+    .{ .include_extensions = ext, });
+}
+
+pub fn addInclude (lib: *std.Build.Step.Compile, path: [] const u8) void
+{
+  const builder = lib.step.owner;
+  const lazy = std.Build.LazyPath { .path = builder.dupe (path), };
+  std.debug.print ("[{s} include] {s}\n",
+    { lib.name, lazy.getPath (builder), });
+  lib.addIncludePath (lazy);
+}
+
+pub fn addSource (lib: *std.Build.Step.Compile, root_path: [] const u8,
+  base_path: [] const u8, flags: [] const [] const u8) !void
+{
+  const builder = lib.step.owner;
+  const source_path = try std.fs.path.join (builder.allocator,
+    &.{ root_path, base_path, });
+  std.debug.print ("[{s} source] {s}\n", .{ lib.name, source_path, });
+  lib.addCSourceFile (.{
+    .path = try std.fs.path.relative (builder.allocator,
+      builder.build_root.path.?, source_path),
+    .flags = flags,
+  });
+}
+
+pub fn write (path: [] const u8, name: [] const u8,
+  content: [] const u8) !void
 {
   std.debug.print ("[write {s}/{s}]\n", .{ path, name, });
   var dir = try std.fs.openDirAbsolute (path, .{});
@@ -43,7 +75,8 @@ pub fn write (path: [] const u8, name: [] const u8, content: [] const u8) !void
 pub fn make (path: [] const u8) !void
 {
   std.debug.print ("[make {s}]\n", .{ path, });
-  std.fs.makeDirAbsolute (path) catch |err| if (err != error.PathAlreadyExists) return err;
+  std.fs.makeDirAbsolute (path) catch |err|
+    if (err != error.PathAlreadyExists) return err;
 }
 
 pub fn copy (src: [] const u8, dest: [] const u8) !void
@@ -52,13 +85,16 @@ pub fn copy (src: [] const u8, dest: [] const u8) !void
   try std.fs.copyFileAbsolute (src, dest, .{});
 }
 
-pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8, cwd: ?[] const u8 = null, env: ?*const std.process.EnvMap = null, wait: ?*const fn () void = null, }) !void
+pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
+  cwd: ?[] const u8 = null, env: ?*const std.process.EnvMap = null,
+  wait: ?*const fn () void = null, }) !void
 {
   var stdout = std.ArrayList (u8).init (builder.allocator);
   var stderr = std.ArrayList (u8).init (builder.allocator);
   errdefer { stdout.deinit (); stderr.deinit (); }
 
-  std.debug.print ("\x1b[35m[{s}]\x1b[0m\n", .{ try std.mem.join (builder.allocator, " ", proc.argv), });
+  std.debug.print ("\x1b[35m[{s}]\x1b[0m\n",
+    .{ try std.mem.join (builder.allocator, " ", proc.argv), });
 
   var child = std.ChildProcess.init (proc.argv, builder.allocator);
 
@@ -80,11 +116,20 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8, cwd:
     term = try child.wait ();
   }
   if (stdout.items.len > 0) std.debug.print ("{s}", .{ stdout.items, });
-  if (stderr.items.len > 0 and !std.meta.eql (term, std.ChildProcess.Term { .Exited = 0, })) std.debug.print ("\x1b[31m{s}\x1b[0m", .{ stderr.items, });
-  if (proc.wait == null) try std.testing.expectEqual (term, std.ChildProcess.Term { .Exited = 0, });
+  if (stderr.items.len > 0 and !std.meta.eql (term, .{ .Exited = 0, }))
+    std.debug.print ("\x1b[31m{s}\x1b[0m", .{ stderr.items, });
+  if (proc.wait == null) try std.testing.expectEqual (term, .{ .Exited = 0, });
+}
+
+pub fn clone (builder: *std.Build, url: [] const u8, tag: [] const u8,
+  path: [] const u8) !void
+{
+  try toolbox.run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
+    "--branch", tag, "--depth", "1", url, path, }, });
 }
 
 pub fn build (builder: *std.Build) !void
 {
-  _ = builder.addModule ("toolbox", .{ .root_source_file = builder.addWriteFiles ().add ("empty.zig", ""), });
+  _ = builder.addModule ("toolbox",
+    .{ .root_source_file = builder.addWriteFiles ().add ("empty.zig", ""), });
 }
