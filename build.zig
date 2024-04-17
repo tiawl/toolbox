@@ -122,11 +122,19 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
   if (proc.wait == null) try std.testing.expectEqual (term, exit_success);
 }
 
-pub fn clone (builder: *std.Build, url: [] const u8, tag: [] const u8,
+pub fn tag (builder: *std.Build, id: [] const u8) ![] const u8
+{
+  const path = try builder.build_root.join (builder.allocator,
+    &.{ ".versions", id, });
+  return std.mem.trim (u8, try builder.build_root.handle.readFileAlloc (
+    builder.allocator, path, std.math.maxInt (usize)), " \n");
+}
+
+pub fn clone (builder: *std.Build, url: [] const u8, tag_id: [] const u8,
   path: [] const u8) !void
 {
   try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
-    "--branch", tag, "--depth", "1", url, path, }, });
+    "--branch", try tag (builder, tag_id), "--depth", "1", url, path, }, });
 }
 
 pub fn build (builder: *std.Build) !void
