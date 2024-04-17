@@ -88,7 +88,7 @@ pub fn copy (src: [] const u8, dest: [] const u8) !void
 
 pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
   cwd: ?[] const u8 = null, env: ?*const std.process.EnvMap = null,
-  wait: ?*const fn () void = null, stdout: ?*[] const u8,
+  wait: ?*const fn () void = null, stdout: ?*[] const u8 = null,
   ignore_errors: bool = false, }) !void
 {
   var stdout = std.ArrayList (u8).init (builder.allocator);
