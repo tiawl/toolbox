@@ -1,4 +1,5 @@
 const std = @import ("std");
+const builtin = @import ("builtin");
 
 pub fn isCSource (name: [] const u8) bool
 {
@@ -87,7 +88,8 @@ pub fn copy (src: [] const u8, dest: [] const u8) !void
 
 pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
   cwd: ?[] const u8 = null, env: ?*const std.process.EnvMap = null,
-  wait: ?*const fn () void = null, }) !void
+  wait: ?*const fn () void = null, stdout: ?*[] const u8,
+  ignore_errors: bool = false, }) !void
 {
   var stdout = std.ArrayList (u8).init (builder.allocator);
   var stderr = std.ArrayList (u8).init (builder.allocator);
@@ -116,10 +118,13 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
     term = try child.wait ();
   }
   const exit_success = std.ChildProcess.Term { .Exited = 0, };
-  if (stdout.items.len > 0) std.debug.print ("{s}", .{ stdout.items, });
   if (stderr.items.len > 0 and !std.meta.eql (term, exit_success))
     std.debug.print ("\x1b[31m{s}\x1b[0m", .{ stderr.items, });
-  if (proc.wait == null) try std.testing.expectEqual (term, exit_success);
+  if (!proc.ignore_errors and proc.wait == null)
+    try std.testing.expectEqual (term, exit_success);
+
+  if (proc.stdout) |out| out.* = try stdout.toOwnedSlice ()
+  else std.debug.print ("{s}", .{ stdout.items, });
 }
 
 pub fn tag (builder: *std.Build, id: [] const u8) ![] const u8
@@ -135,6 +140,22 @@ pub fn clone (builder: *std.Build, url: [] const u8, tag_id: [] const u8,
 {
   try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
     "--branch", try tag (builder, tag_id), "--depth", "1", url, path, }, });
+}
+
+pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
+{
+  var submodules: [] u8 = undefined;
+  try run (builder, .{ .argv = &[_][] const u8 { "git", "config", "--file",
+    ".gitmodules", "--get-regexp", "path", }, .stdout = &submodules,
+      .ignore_errors = true, .cwd = builder.build_root.path.?, });
+  var it = std.mem.tokenizeAny (u8, submodules, " \n");
+  var flag = false;
+  while (it.next ()) |token|
+  {
+    if (flag and std.mem.eql (u8, name, token)) return true;
+    flag = !flag;
+  }
+  return false;
 }
 
 pub fn build (builder: *std.Build) !void
