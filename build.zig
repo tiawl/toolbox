@@ -158,6 +158,54 @@ pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
   return false;
 }
 
+pub fn writeZon (builder: *std.Build, name: [] const u8) !void
+{
+  var buffer = std.ArrayList (u8).init (builder.allocator);
+  const writer = buffer.writer ();
+
+  try writer.print (".{c}\n", .{ '{', });
+  try writer.print (".name = \"{s}\",\n", .{ name, });
+  try writer.print (".version = \"1.0.0\",\n", .{});
+  try writer.print (".minimum_zig_version = \"{}.{}.0\",\n",
+    .{ builtin.zig_version.major, builtin.zig_version.minor, });
+
+  try writer.print (".paths = .{c}\n", .{ '{', });
+
+  var build_dir = try builder.build_root.handle.openDir (".",
+    .{ .iterate = true, });
+  defer build_dir.close ();
+
+  var it = build_dir.iterate ();
+  while (try it.next ()) |*entry|
+  {
+    if (!std.mem.startsWith (u8, entry.name, ".") and
+      !std.mem.eql (u8, entry.name, "zig-cache") and
+      !std.mem.eql (u8, entry.name, "zig-out") and
+      !try isSubmodule (builder, entry.name))
+        try writer.print ("\"{s}\",\n", .{ entry.name, });
+  }
+
+  try writer.print ("{c},\n", .{ '}', });
+
+  //try writer.print (".dependencies = .{c}\n", .{ '{', });
+
+  //try writer.print ("{c},\n", .{ '}', });
+
+  try writer.print ("{c}\n", .{ '}', });
+
+  try buffer.append (0);
+  const source = buffer.items [0 .. buffer.items.len - 1 :0];
+
+  const validated = try std.zig.Ast.parse (builder.allocator, source, .zon);
+  const formatted = try validated.render (builder.allocator);
+
+  std.debug.print ("{s}\n", .{formatted});
+  //try builder.build_root.handle.deleteFile ("build.zig.zon");
+  //try builder.build_root.handle.writeFile ("build.zig.zon", formatted);
+
+  std.process.exit (0);
+}
+
 pub fn build (builder: *std.Build) !void
 {
   _ = builder.addModule ("toolbox",
