@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - trunk
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        repo: [vulkan,wayland,X11,glfw,cimgui,spirv,glslang,shaderc]
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v2.2.0
+      with:
+        version: 0.12.0-dev.3630+215de3ee6
+
+    - name: Set variables
+      id: vars
+      run: |
+        printf 'tmp=%s\n' "$(mktemp -d)" >> ${GITHUB_OUTPUT}
+        printf 'hash=%s\n' "$(zig fetch .)" >> ${GITHUB_OUTPUT}
+
+    - name: Clone ${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig
+      run: |
+        git clone "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig.git" ${{ steps.vars.outputs.tmp }}
+
+    - name: Prepare ${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig/build.zig.zon
+      working-directory: ${{ steps.vars.outputs.tmp }}
+      run: |
+        zon_url="$(grep -o "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/archive/.*\.tar\.gz" build.zig.zon)"
+        zon_hash="$(zig fetch "${zon_url}")"
+        sed -i "s@${zon_url}@${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz@;
+                s@${zon_hash}@${{ steps.vars.outputs.hash }}@" build.zig.zon
+
+    - name: Build ${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig
+      working-directory: ${{ steps.vars.outputs.tmp }}
+      run:
+        zig build -Dupdate
