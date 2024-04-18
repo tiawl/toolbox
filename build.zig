@@ -1,6 +1,8 @@
 const std = @import ("std");
 const builtin = @import ("builtin");
 
+//test
+
 pub fn isCSource (name: [] const u8) bool
 {
   return std.mem.endsWith (u8, name, ".c");
