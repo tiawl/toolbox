@@ -123,7 +123,8 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
   if (!proc.ignore_errors and proc.wait == null)
     try std.testing.expectEqual (term, exit_success);
 
-  if (proc.stdout) |out| out.* = try stdout.toOwnedSlice ()
+  if (proc.stdout) |out|
+    out.* = std.mem.trim (u8, try stdout.toOwnedSlice (), " \n")
   else std.debug.print ("{s}", .{ stdout.items, });
 }
 
