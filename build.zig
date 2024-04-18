@@ -1,7 +1,7 @@
 const std = @import ("std");
 const builtin = @import ("builtin");
 
-// test
+//test
 
 pub fn isCSource (name: [] const u8) bool
 {
