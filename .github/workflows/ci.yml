@@ -9,7 +9,8 @@ jobs:
   build:
     strategy:
       matrix:
-        repo: [vulkan,wayland,X11,glfw,cimgui,spirv,glslang,shaderc]
+        #repo: [vulkan,wayland,X11,glfw,cimgui,spirv,glslang,shaderc]
+        repo: [vulkan]
     runs-on: ubuntu-latest
 
     steps:
@@ -26,11 +27,11 @@ jobs:
         printf 'tmp=%s\n' "$(mktemp -d)" >> ${GITHUB_OUTPUT}
         printf 'hash=%s\n' "$(zig fetch .)" >> ${GITHUB_OUTPUT}
 
-    - name: Clone ${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig
+    - name: Clone ${{ matrix.repo }}.zig
       run: |
         git clone "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig.git" ${{ steps.vars.outputs.tmp }}
 
-    - name: Prepare ${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig/build.zig.zon
+    - name: Prepare ${{ matrix.repo }}.zig/build.zig.zon
       working-directory: ${{ steps.vars.outputs.tmp }}
       run: |
         zon_url="$(grep -o "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/archive/.*\.tar\.gz" build.zig.zon)"
@@ -38,7 +39,7 @@ jobs:
         sed -i "s@${zon_url}@${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz@;
                 s@${zon_hash}@${{ steps.vars.outputs.hash }}@" build.zig.zon
 
-    - name: Build ${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig
+    - name: Build ${{ matrix.repo }}.zig
       working-directory: ${{ steps.vars.outputs.tmp }}
       run:
         zig build -Dupdate
