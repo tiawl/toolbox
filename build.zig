@@ -128,19 +128,19 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
   else std.debug.print ("{s}", .{ stdout.items, });
 }
 
-pub fn tag (builder: *std.Build, id: [] const u8) ![] const u8
+pub fn tag (builder: *std.Build, repo: [] const u8) ![] const u8
 {
   const path = try builder.build_root.join (builder.allocator,
-    &.{ ".versions", id, });
+    &.{ ".versions", repo, });
   return std.mem.trim (u8, try builder.build_root.handle.readFileAlloc (
     builder.allocator, path, std.math.maxInt (usize)), " \n");
 }
 
-pub fn clone (builder: *std.Build, url: [] const u8, tag_id: [] const u8,
+pub fn clone (builder: *std.Build, url: [] const u8, repo: [] const u8,
   path: [] const u8) !void
 {
   try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
-    "--branch", try tag (builder, tag_id), "--depth", "1", url, path, }, });
+    "--branch", try tag (builder, repo), "--depth", "1", url, path, }, });
 }
 
 pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
@@ -228,16 +228,16 @@ pub const Repository = struct
           builder.allocator, raw, .{});
         defer commits.deinit ();
 
-        for (commits.value.array.items) |*commit|
+        for (commits.value.array.items) |*commit_value|
         {
-          for (tags.value.array.items) |*tag|
+          for (tags.value.array.items) |*tag_value|
           {
             if (std.mem.eql (u8,
-              commit.object.get ("sha").?.string,
-              tag.object.get ("commit").?.object.get ("sha").?.string))
+              commit_value.object.get ("sha").?.string,
+              tag_value.object.get ("commit").?.object.get ("sha").?.string))
             {
               self.latest_tag = builder.dupe (
-                tag.object.get ("name").?.string);
+                tag_value.object.get ("name").?.string);
               break :loop;
             }
           }
@@ -262,7 +262,7 @@ pub const Repository = struct
 
       if (!use_fetch) return self;
 
-      const tags_url = try std.fmt.allocPrint (builder.allocator,
+      const endpoint = try std.fmt.allocPrint (builder.allocator,
         "https://gitlab.freedesktop.org/api/v4/projects/{}/repository/tags",
         .{ self.id, });
 
@@ -274,8 +274,9 @@ pub const Repository = struct
       {
         page_field =
           try std.fmt.allocPrint (builder.allocator, "page={}", .{ page, });
-        try run (builder, .{ .argv = &[_][] const u8 { "curl", "-sS",
-          "--request", "GET", "--url", tags_url, }, .stdout = &raw, });
+        try run (builder, .{ .argv = &[_][] const u8 { "glab", "api",
+          "--method", "GET", "-F", "per_page=100", "-F", page_field, endpoint,
+          }, .stdout = &raw, });
         raw = @constCast (std.mem.trim (u8, raw, "[]"));
         raw_tags = try std.fmt.allocPrint (builder.allocator, "{s}{s}{s}",
           .{ raw_tags, if (raw.len > 0 and raw_tags.len > 0) "," else "",
@@ -291,16 +292,17 @@ pub const Repository = struct
 
       var latest_ts: u64 = 0;
       var commit_ts: u64 = 0;
-      for (tags.value.array.items) |*tag|
+      for (tags.value.array.items) |*tag_value|
       {
         try run (builder, .{ .argv = &[_][] const u8 { "date", "-d",
-          tag.object.get ("commit").?.object.get ("created_at").?.string,
+          tag_value.object.get ("commit").?.object.get ("created_at").?.string,
           "+%s", }, .stdout = &raw, });
         commit_ts = try std.fmt.parseInt (u64, raw, 10);
         if (commit_ts > latest_ts)
         {
           latest_ts = commit_ts;
-          self.latest_tag = builder.dupe (tag.object.get ("name").?.string);
+          self.latest_tag =
+            builder.dupe (tag_value.object.get ("name").?.string);
         }
       }
 
@@ -314,7 +316,7 @@ pub const Dependencies = struct
   zon: std.StringHashMap (Repository),
   clone: std.StringHashMap (Repository),
 
-  pub fn init (builder: *std.Build, zon: anytype, clone: anytype,
+  pub fn init (builder: *std.Build, zon_proto: anytype, clone_proto: anytype,
     use_fetch: bool) !@This ()
   {
     var self = @This () {
@@ -322,7 +324,8 @@ pub const Dependencies = struct
       .clone = std.StringHashMap (Repository).init (builder.allocator),
     };
 
-    inline for (.{ zon, clone, }, &.{ "zon", "clone", }) |proto, name|
+    inline for (.{ zon_proto, clone_proto, },
+      &.{ "zon", "clone", }) |proto, name|
     {
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
