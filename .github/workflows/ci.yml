@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         #repo: [vulkan,wayland,X11,glfw,cimgui,spirv,glslang,shaderc]
-        repo: [vulkan]
+        repo: [vulkan,wayland]
     runs-on: ubuntu-latest
 
     steps:
