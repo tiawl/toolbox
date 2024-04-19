@@ -123,21 +123,20 @@ pub const Repository = struct
 
       if (!use_fetch) return self;
 
-      const endpoint = try std.fmt.allocPrint (builder.allocator,
-        "https://gitlab.freedesktop.org/api/v4/projects/{}/repository/tags",
+      const pageless_endpoint = try std.fmt.allocPrint (builder.allocator,
+        "https://gitlab.freedesktop.org/api/v4/projects/{}/repository/tags?per_page=100&page=",
         .{ self.id, });
 
       var raw_tags: [] u8 = "";
       var raw: [] u8 = "";
       var page: u32 = 1;
-      var page_field: [] const u8 = undefined;
+      var endpoint: [] const u8 = undefined;
       while (raw_tags.len == 0 or raw.len > 0)
       {
-        page_field =
-          try std.fmt.allocPrint (builder.allocator, "page={}", .{ page, });
-        try run (builder, .{ .argv = &[_][] const u8 { "glab", "api",
-          "--method", "GET", "-F", "per_page=100", "-F", page_field, endpoint,
-          }, .stdout = &raw, });
+        endpoint = try std.fmt.allocPrint (builder.allocator, "{s}{}",
+          .{ pageless_endpoint, page, });
+        try run (builder, .{ .argv = &[_][] const u8 { "curl", "-sS",
+          "--request", "GET", "--url", endpoint, }, .stdout = &raw, });
         raw = @constCast (std.mem.trim (u8, raw, "[]"));
         raw_tags = try std.fmt.allocPrint (builder.allocator, "{s}{s}{s}",
           .{ raw_tags, if (raw.len > 0 and raw_tags.len > 0) "," else "",
