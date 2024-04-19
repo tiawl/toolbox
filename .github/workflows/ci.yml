@@ -27,7 +27,7 @@ jobs:
         printf 'tmp=%s\n' "$(mktemp -d)" >> ${GITHUB_OUTPUT}
         printf 'hash=%s\n' "$(zig fetch .)" >> ${GITHUB_OUTPUT}
 
-    - name: Clone ${{ env.GITHUB_SERVER_URL ]}/${{ env.GITHUB_REPOSITORY_OWNER }}/${{ matrix.repo }}.zig
+    - name: Clone ${{ env.GITHUB_SERVER_URL }}/${{ env.GITHUB_REPOSITORY_OWNER }}/${{ matrix.repo }}.zig
       run: |
         git clone "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig.git" ${{ steps.vars.outputs.tmp }}
 
