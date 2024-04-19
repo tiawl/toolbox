@@ -1,6 +1,9 @@
 const std = @import ("std");
 const builtin = @import ("builtin");
 
+const command = @import ("command.zig");
+pub const run = command.run;
+
 pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
 {
   var submodules: [] u8 = undefined;
