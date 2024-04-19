@@ -15,35 +15,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-
-    - name: Setup Zig
-      uses: goto-bus-stop/setup-zig@v2.2.0
+    - uses: tiawl/spaceporn-dep-action-ci@v1
       with:
-        version: 0.12.0-dev.3630+215de3ee6
-
-    - name: Set variables
-      id: vars
-      shell: bash
-      run: |
-        printf 'tmp=%s\n' "$(mktemp -d)" >> ${GITHUB_OUTPUT}
-        printf 'hash=%s\n' "$(zig fetch .)" >> ${GITHUB_OUTPUT}
-
-    - name: Clone ${{ matrix.repo }}.zig
-      shell: bash
-      run: |
-        git clone "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY_OWNER}/${{ matrix.repo }}.zig.git" ${{ steps.vars.outputs.tmp }}
-
-    - name: Prepare ${{ matrix.repo }}.zig/build.zig.zon
-      working-directory: ${{ steps.vars.outputs.tmp }}
-      shell: bash
-      run: |
-        zon_url="$(grep -o "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/archive/.*\.tar\.gz" build.zig.zon)"
-        zon_hash="$(zig fetch "${zon_url}")"
-        sed -i "s@${zon_url}@${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz@;
-                s@${zon_hash}@${{ steps.vars.outputs.hash }}@" build.zig.zon
-
-    - name: Build ${{ matrix.repo }}.zig
-      working-directory: ${{ steps.vars.outputs.tmp }}
-      shell: bash
-      run:
-        zig build -Dupdate
+        user: ${{ matrix.repo }}
