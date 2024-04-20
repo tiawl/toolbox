@@ -5,6 +5,9 @@ const command = @import ("command.zig");
 pub const run = command.run;
 pub const tag = command.tag;
 
+const @"test" = @import ("test.zig");
+pub const exists = @"test".exists;
+
 pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
 {
   var submodules: [] u8 = undefined;
@@ -21,6 +24,16 @@ pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
   return false;
 }
 
+fn fetchSubmodules (builder: *std.Build) !void
+{
+  if (!exists (try builder.build_root.join (builder.allocator,
+    &.{ ".gitmodules", }))) return;
+
+  try run (builder, .{ .argv = &[_][] const u8 { "git", "submodule",
+    "update", "--remote", "--merge", },
+      .cwd = builder.build_root.path.?, });
+}
+
 pub const Repository = struct
 {
   pub const API = enum { github, gitlab, };
@@ -30,21 +43,27 @@ pub const Repository = struct
   url: [] const u8 = undefined,
   latest_tag: [] const u8 = undefined,
 
+  fn searchTag (self: @This (), builder: *std.Build) !@This ()
+  {
+    return if (self.id == 0) Repository.Github.searchTag (self, builder)
+      else Repository.Gitlab.searchTag (self, builder);
+  }
+
   pub const Github = struct
   {
-    fn init (builder: *std.Build, name: [] const u8,
-      use_fetch: bool) !Repository
+    fn init (builder: *std.Build, name: [] const u8) !Repository
     {
-      var self = Repository {
+      return .{
         .name = name,
         .url = try std.fmt.allocPrint (builder.allocator,
           "https://github.com/{s}", .{ name, }),
       };
+    }
 
-      if (!use_fetch) return self;
-
+    fn searchTag (self: Repository, builder: *std.Build) !Repository
+    {
       var endpoint = try std.fmt.allocPrint (builder.allocator,
-        "/repos/{s}/tags", .{ name, });
+        "/repos/{s}/tags", .{ self.name, });
 
       var raw_tags: [] u8 = "";
       var raw: [] u8 = "";
@@ -73,7 +92,12 @@ pub const Repository = struct
       defer tags.deinit ();
 
       endpoint = try std.fmt.allocPrint (builder.allocator,
-        "/repos/{s}/commits", .{ name, });
+        "/repos/{s}/commits", .{ self.name, });
+
+      var result: Repository = .{
+        .name = builder.dupe (self.name),
+        .url = builder.dupe (self.url),
+      };
 
       page = 1;
       loop: while (true)
@@ -98,7 +122,7 @@ pub const Repository = struct
               commit_value.object.get ("sha").?.string,
               tag_value.object.get ("commit").?.object.get ("sha").?.string))
             {
-              self.latest_tag = builder.dupe (
+              result.latest_tag = builder.dupe (
                 tag_value.object.get ("name").?.string);
               break :loop;
             }
@@ -106,24 +130,24 @@ pub const Repository = struct
         }
       }
 
-      return self;
+      return result;
     }
   };
 
   pub const Gitlab = struct
   {
-    fn init (builder: *std.Build, name: [] const u8, id: u32,
-      use_fetch: bool) !Repository
+    fn init (builder: *std.Build, name: [] const u8, id: u32) !Repository
     {
-      var self = Repository {
+      return .{
         .name = name,
         .id = id,
         .url = try std.fmt.allocPrint (builder.allocator,
           "https://gitlab.freedesktop.org/{s}", .{ name, }),
       };
+    }
 
-      if (!use_fetch) return self;
-
+    fn searchTag (self: Repository, builder: *std.Build) !Repository
+    {
       const pageless_endpoint = try std.fmt.allocPrint (builder.allocator,
         "https://gitlab.freedesktop.org/api/v4/projects/{}/repository/tags?per_page=100&page=",
         .{ self.id, });
@@ -151,6 +175,12 @@ pub const Repository = struct
         builder.allocator, raw_tags, .{});
       defer tags.deinit ();
 
+      var result: Repository = .{
+        .name = builder.dupe (self.name),
+        .id = self.id,
+        .url = builder.dupe (self.url),
+      };
+
       var latest_ts: u64 = 0;
       var commit_ts: u64 = 0;
       for (tags.value.array.items) |*tag_value|
@@ -162,31 +192,31 @@ pub const Repository = struct
         if (commit_ts > latest_ts)
         {
           latest_ts = commit_ts;
-          self.latest_tag =
+          result.latest_tag =
             builder.dupe (tag_value.object.get ("name").?.string);
         }
       }
 
-      return self;
+      return result;
     }
   };
 };
 
 pub const Dependencies = struct
 {
-  zons: std.StringHashMap (Repository),
-  clones: std.StringHashMap (Repository),
+  intern: std.StringHashMap (Repository),
+  @"extern": std.StringHashMap (Repository),
 
-  pub fn init (builder: *std.Build, zons_proto: anytype,
-    clones_proto: anytype, use_fetch: bool) !@This ()
+  pub fn init (builder: *std.Build, intern_proto: anytype,
+    extern_proto: anytype) !@This ()
   {
     var self = @This () {
-      .zons = std.StringHashMap (Repository).init (builder.allocator),
-      .clones = std.StringHashMap (Repository).init (builder.allocator),
+      .intern = std.StringHashMap (Repository).init (builder.allocator),
+      .@"extern" = std.StringHashMap (Repository).init (builder.allocator),
     };
 
-    inline for (.{ zons_proto, clones_proto, },
-      &.{ "zons", "clones", }) |proto, name|
+    inline for (.{ intern_proto, extern_proto, },
+      &.{ "intern", "extern", }) |proto, name|
     {
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
@@ -194,10 +224,9 @@ pub const Dependencies = struct
           switch (@field (proto, field.name).api)
           {
             .github => try Repository.Github.init (builder,
-              @field (proto, field.name).name, use_fetch),
+              @field (proto, field.name).name),
             .gitlab => try Repository.Gitlab.init (builder,
-              @field (proto, field.name).name, @field (proto, field.name).id,
-              use_fetch),
+              @field (proto, field.name).name, @field (proto, field.name).id),
           });
       }
     }
@@ -205,96 +234,115 @@ pub const Dependencies = struct
     return self;
   }
 
-  pub fn clone (dependencies: @This (), builder: *std.Build,
+  pub fn clone (self: @This (), builder: *std.Build,
     repo: [] const u8, path: [] const u8) !void
   {
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
       "--branch", try tag (builder, repo), "--depth", "1",
-      dependencies.clones.get (repo).?.url, path, }, });
+      self.@"extern".get (repo).?.url, path, }, });
   }
-};
 
-pub fn fetch (builder: *std.Build, name: [] const u8,
-  dependencies: *const Dependencies) !void
-{
-  var versions_dir =
-    try builder.build_root.handle.openDir (".versions", .{});
-  defer versions_dir.close ();
-
+  pub fn fetch (self: *@This (), builder: *std.Build, name: [] const u8) !void
   {
-    var it = dependencies.clones.keyIterator ();
+    try self.searchTags (builder);
+    try self.fetchExtern (builder);
+    try self.fetchIntern (builder, name);
+    try fetchSubmodules (builder);
+
+    std.process.exit (0);
+  }
+
+  fn searchTags (self: *@This (), builder: *std.Build) !void
+  {
+    for (&[_] *std.StringHashMap (Repository) {
+      &self.@"extern", &self.intern,
+    }) |*dep| {
+      var it = dep.*.keyIterator ();
+      while (it.next ()) |key|
+        try dep.*.put (key.*, try dep.*.get (key.*).?.searchTag (builder));
+    }
+  }
+
+  fn fetchExtern (self: *@This (), builder: *std.Build) !void
+  {
+    var versions_dir =
+      try builder.build_root.handle.openDir (".versions", .{});
+    defer versions_dir.close ();
+
+    var it = self.@"extern".keyIterator ();
     while (it.next ()) |key|
     {
       try versions_dir.deleteFile (key.*);
       try versions_dir.writeFile (key.*,
         try std.fmt.allocPrint (builder.allocator, "{s}\n",
-          .{ dependencies.clones.get (key.*).?.latest_tag, }));
+          .{ self.@"extern".get (key.*).?.latest_tag, }));
     }
   }
 
-  var buffer = std.ArrayList (u8).init (builder.allocator);
-  const writer = buffer.writer ();
-
-  try writer.print (
-    \\.{c}
-    \\  .name = "{s}",
-    \\  .version = "1.0.0",
-    \\  .minimum_zig_version = "{}.{}.0",
-    \\  .paths = .{c}
-    \\
-    , .{ '{', name, builtin.zig_version.major,
-         builtin.zig_version.minor, '{', });
-
-  var build_dir = try builder.build_root.handle.openDir (".",
-    .{ .iterate = true, });
-  defer build_dir.close ();
-
+  fn fetchIntern (self: *@This (), builder: *std.Build,
+    name: [] const u8) !void
   {
-    var it = build_dir.iterate ();
-    while (try it.next ()) |*entry|
+    var buffer = std.ArrayList (u8).init (builder.allocator);
+    const writer = buffer.writer ();
+
+    try writer.print (
+      \\.{c}
+      \\  .name = "{s}",
+      \\  .version = "1.0.0",
+      \\  .minimum_zig_version = "{}.{}.0",
+      \\  .paths = .{c}
+      \\
+      , .{ '{', name, builtin.zig_version.major,
+           builtin.zig_version.minor, '{', });
+
+    var build_dir = try builder.build_root.handle.openDir (".",
+      .{ .iterate = true, });
+    defer build_dir.close ();
+
     {
-      if (!std.mem.startsWith (u8, entry.name, ".") and
-        !std.mem.eql (u8, entry.name, "zig-cache") and
-        !std.mem.eql (u8, entry.name, "zig-out") and
-        !try isSubmodule (builder, entry.name))
-          try writer.print ("\"{s}\",\n", .{ entry.name, });
+      var it = build_dir.iterate ();
+      while (try it.next ()) |*entry|
+      {
+        if (!std.mem.startsWith (u8, entry.name, ".") and
+          !std.mem.eql (u8, entry.name, "zig-cache") and
+          !std.mem.eql (u8, entry.name, "zig-out") and
+          !try isSubmodule (builder, entry.name))
+            try writer.print ("\"{s}\",\n", .{ entry.name, });
+      }
     }
-  }
 
-  try writer.print ("{c},\n.dependencies = .{c}\n", .{ '}', '{', });
+    try writer.print ("{c},\n.dependencies = .{c}\n", .{ '}', '{', });
 
-  {
-    var it = dependencies.zons.keyIterator ();
-    while (it.next ()) |key|
     {
-      const url = try std.fmt.allocPrint (builder.allocator,
-        "{s}/archive/refs/tags/{s}.tar.gz",
-        .{ dependencies.zons.get (key.*).?.url,
-           dependencies.zons.get (key.*).?.latest_tag, });
-      var hash: [] u8 = undefined;
-      try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
-        .stdout = &hash, });
-      try writer.print (
-        \\.{s} = .{c}
-        \\  .url = "{s}",
-        \\  .hash = "{s}",
-        \\{c},
-        \\
-      , .{ key.*, '{', url, hash, '}', });
+      var it = self.intern.keyIterator ();
+      while (it.next ()) |key|
+      {
+        const url = try std.fmt.allocPrint (builder.allocator,
+          "{s}/archive/refs/tags/{s}.tar.gz",
+          .{ self.intern.get (key.*).?.url,
+             self.intern.get (key.*).?.latest_tag, });
+        var hash: [] u8 = undefined;
+        try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
+          .stdout = &hash, });
+        try writer.print (
+          \\.{s} = .{c}
+          \\  .url = "{s}",
+          \\  .hash = "{s}",
+          \\{c},
+          \\
+        , .{ key.*, '{', url, hash, '}', });
+      }
     }
+
+    try writer.print ("{c},\n{c}\n", .{ '}', '}', });
+
+    try buffer.append (0);
+    const source = buffer.items [0 .. buffer.items.len - 1 :0];
+
+    const validated = try std.zig.Ast.parse (builder.allocator, source, .zon);
+    const formatted = try validated.render (builder.allocator);
+
+    try builder.build_root.handle.deleteFile ("build.zig.zon");
+    try builder.build_root.handle.writeFile ("build.zig.zon", formatted);
   }
-
-  try writer.print ("{c},\n{c}\n", .{ '}', '}', });
-
-  try buffer.append (0);
-  const source = buffer.items [0 .. buffer.items.len - 1 :0];
-
-  const validated = try std.zig.Ast.parse (builder.allocator, source, .zon);
-  const formatted = try validated.render (builder.allocator);
-
-  try builder.build_root.handle.deleteFile ("build.zig.zon");
-  try builder.build_root.handle.writeFile ("build.zig.zon", formatted);
-
-  std.process.exit (0);
-}
-
+};
