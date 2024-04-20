@@ -3,6 +3,7 @@ const builtin = @import ("builtin");
 
 const command = @import ("command.zig");
 pub const run = command.run;
+pub const tag = command.tag;
 
 pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
 {
