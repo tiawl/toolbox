@@ -10,12 +10,12 @@ jobs:
     strategy:
       matrix:
         #repo: [vulkan,wayland,X11,glfw,cimgui,spirv,glslang,shaderc]
-        repo: [vulkan,wayland,X11,glfw]
+        repo: [vulkan,wayland,X11,glfw,cimgui]
     runs-on: ubuntu-latest
     steps:
     - uses: tiawl/spaceporn-dep-action-ci@v1
       with:
-        user: ${{ matrix.repo }}.zig
+        user: "${{ matrix.repo }}.zig"
         test_build: 'false'
         test_update: 'true'
         test_fetch: 'true'
