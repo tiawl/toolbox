@@ -3,6 +3,7 @@ const builtin = @import ("builtin");
 
 const command = @import ("command.zig");
 pub const run = command.run;
+pub const tag = command.tag;
 
 pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
 {
@@ -173,19 +174,19 @@ pub const Repository = struct
 
 pub const Dependencies = struct
 {
-  zon: std.StringHashMap (Repository),
-  clone: std.StringHashMap (Repository),
+  zons: std.StringHashMap (Repository),
+  clones: std.StringHashMap (Repository),
 
-  pub fn init (builder: *std.Build, zon_proto: anytype, clone_proto: anytype,
-    use_fetch: bool) !@This ()
+  pub fn init (builder: *std.Build, zons_proto: anytype,
+    clones_proto: anytype, use_fetch: bool) !@This ()
   {
     var self = @This () {
-      .zon = std.StringHashMap (Repository).init (builder.allocator),
-      .clone = std.StringHashMap (Repository).init (builder.allocator),
+      .zons = std.StringHashMap (Repository).init (builder.allocator),
+      .clones = std.StringHashMap (Repository).init (builder.allocator),
     };
 
-    inline for (.{ zon_proto, clone_proto, },
-      &.{ "zon", "clone", }) |proto, name|
+    inline for (.{ zons_proto, clones_proto, },
+      &.{ "zons", "clones", }) |proto, name|
     {
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
@@ -203,6 +204,14 @@ pub const Dependencies = struct
 
     return self;
   }
+
+  pub fn clone (dependencies: @This (), builder: *std.Build,
+    repo: [] const u8, path: [] const u8) !void
+  {
+    try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
+      "--branch", try tag (builder, repo), "--depth", "1",
+      dependencies.clones.get (repo).?.url, path, }, });
+  }
 };
 
 pub fn fetch (builder: *std.Build, name: [] const u8,
@@ -213,13 +222,13 @@ pub fn fetch (builder: *std.Build, name: [] const u8,
   defer versions_dir.close ();
 
   {
-    var it = dependencies.clone.keyIterator ();
+    var it = dependencies.clones.keyIterator ();
     while (it.next ()) |key|
     {
       try versions_dir.deleteFile (key.*);
       try versions_dir.writeFile (key.*,
         try std.fmt.allocPrint (builder.allocator, "{s}\n",
-          .{ dependencies.clone.get (key.*).?.latest_tag, }));
+          .{ dependencies.clones.get (key.*).?.latest_tag, }));
     }
   }
 
@@ -255,13 +264,13 @@ pub fn fetch (builder: *std.Build, name: [] const u8,
   try writer.print ("{c},\n.dependencies = .{c}\n", .{ '}', '{', });
 
   {
-    var it = dependencies.zon.keyIterator ();
+    var it = dependencies.zons.keyIterator ();
     while (it.next ()) |key|
     {
       const url = try std.fmt.allocPrint (builder.allocator,
         "{s}/archive/refs/tags/{s}.tar.gz",
-        .{ dependencies.zon.get (key.*).?.url,
-           dependencies.zon.get (key.*).?.latest_tag, });
+        .{ dependencies.zons.get (key.*).?.url,
+           dependencies.zons.get (key.*).?.latest_tag, });
       var hash: [] u8 = undefined;
       try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
         .stdout = &hash, });

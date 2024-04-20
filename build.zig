@@ -11,7 +11,6 @@ pub const make = command.make;
 pub const copy = command.copy;
 pub const run = command.run;
 pub const tag = command.tag;
-pub const clone = command.clone;
 
 const deps = @import ("build/deps.zig");
 pub const isSubmodule = deps.isSubmodule;

@@ -71,11 +71,3 @@ pub fn tag (builder: *std.Build, repo: [] const u8) ![] const u8
   return std.mem.trim (u8, try builder.build_root.handle.readFileAlloc (
     builder.allocator, path, std.math.maxInt (usize)), " \n");
 }
-
-pub fn clone (builder: *std.Build, url: [] const u8, repo: [] const u8,
-  path: [] const u8) !void
-{
-  try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
-    "--branch", try tag (builder, repo), "--depth", "1", url, path, }, });
-}
-
