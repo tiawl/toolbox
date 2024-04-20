@@ -31,3 +31,10 @@ pub fn isHeader (name: [] const u8) bool
 {
   return isCHeader (name) or isCppHeader (name);
 }
+
+pub fn exists (path: [] const u8) bool
+{
+  if (path.len == 0) return false;
+  std.fs.accessAbsolute (path, .{}) catch return false;
+  return true;
+}
