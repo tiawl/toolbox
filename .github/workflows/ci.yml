@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         #repo: [vulkan,wayland,X11,glfw,cimgui,spirv,glslang,shaderc]
-        repo: [vulkan,wayland,X11]
+        repo: [vulkan,wayland,X11,glfw]
     runs-on: ubuntu-latest
     steps:
     - uses: tiawl/spaceporn-dep-action-ci@v1
