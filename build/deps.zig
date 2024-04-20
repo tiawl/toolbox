@@ -26,7 +26,8 @@ pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
 
 fn fetchSubmodules (builder: *std.Build) !void
 {
-  if (!exists (builder.build_root.join (".gitmodules"))) return
+  if (!exists (try builder.build_root.join (builder.allocator,
+    &.{ ".gitmodules", }))) return;
 
   try run (builder, .{ .argv = &[_][] const u8 { "git", "submodule",
     "update", "--remote", "--merge", },
@@ -42,7 +43,7 @@ pub const Repository = struct
   url: [] const u8 = undefined,
   latest_tag: [] const u8 = undefined,
 
-  fn searchTag (self: @This (), builder: *std.Builder) !@This ()
+  fn searchTag (self: @This (), builder: *std.Build) !@This ()
   {
     return if (self.id == 0) Repository.Github.searchTag (self, builder)
       else Repository.Gitlab.searchTag (self, builder);
@@ -59,7 +60,7 @@ pub const Repository = struct
       };
     }
 
-    fn searchTag (self: Repository, builder: *std.Builder) !Repository
+    fn searchTag (self: Repository, builder: *std.Build) !Repository
     {
       var endpoint = try std.fmt.allocPrint (builder.allocator,
         "/repos/{s}/tags", .{ self.name, });
@@ -145,7 +146,7 @@ pub const Repository = struct
       };
     }
 
-    fn searchTag (self: Repository, builder: *std.Builder) !Repository
+    fn searchTag (self: Repository, builder: *std.Build) !Repository
     {
       const pageless_endpoint = try std.fmt.allocPrint (builder.allocator,
         "https://gitlab.freedesktop.org/api/v4/projects/{}/repository/tags?per_page=100&page=",
@@ -253,12 +254,12 @@ pub const Dependencies = struct
 
   fn searchTags (self: *@This (), builder: *std.Build) !void
   {
-    for ([_] std.StringHashMap (Repository) {
-      self.@"extern", self.intern,
+    for (&[_] *std.StringHashMap (Repository) {
+      &self.@"extern", &self.intern,
     }) |*dep| {
-      var it = dep.keyIterator ();
+      var it = dep.*.keyIterator ();
       while (it.next ()) |key|
-        try dep.put (key.*, try dep.get (key.*).?.searchTag (builder));
+        try dep.*.put (key.*, try dep.*.get (key.*).?.searchTag (builder));
     }
   }
 
