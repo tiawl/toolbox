@@ -56,6 +56,12 @@ pub const Repository = struct
       else Repository.Gitlab.searchLatest (self, builder);
   }
 
+  fn valid (tag: [] const u8) bool
+  {
+    return (std.mem.indexOfAny (u8, tag, "0123456789") != null) and
+      (std.mem.indexOfScalar (u8, tag, '.') != null);
+  }
+
   pub const Github = struct
   {
     fn init (builder: *std.Build, name: [] const u8) !Repository
@@ -125,6 +131,7 @@ pub const Repository = struct
         {
           for (tags.value.array.items) |*tag|
           {
+            if (!valid (tag.object.get ("name").?.string)) continue;
             if (std.mem.eql (u8,
               commit.object.get ("sha").?.string,
               tag.object.get ("commit").?.object.get ("sha").?.string))
@@ -192,6 +199,7 @@ pub const Repository = struct
       var commit_ts: u64 = 0;
       for (tags.value.array.items) |*tag|
       {
+        if (!valid (tag.object.get ("name").?.string)) continue;
         try run (builder, .{ .argv = &[_][] const u8 { "date", "-d",
           tag.object.get ("commit").?.object.get ("created_at").?.string,
           "+%s", }, .stdout = &raw_page, });
