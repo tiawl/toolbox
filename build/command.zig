@@ -91,7 +91,7 @@ pub fn clean (builder: *std.Build, paths: [] const [] const u8,
       walker = try dir.walk (builder.allocator);
       defer walker.deinit ();
 
-      while (try walker.next ()) |*entry|
+      walk: while (try walker.next ()) |*entry|
       {
         const entry_abspath = try std.fs.path.join (builder.allocator,
           &.{ root_path, entry.path, });
@@ -99,16 +99,16 @@ pub fn clean (builder: *std.Build, paths: [] const [] const u8,
         {
           .file => {
             for (extensions) |ext|
-              if (std.mem.endsWith (u8, entry.basename, ext)) continue;
+              if (std.mem.endsWith (u8, entry.basename, ext)) continue :walk;
             if (isSource (entry.basename) or
-              isHeader (entry.basename)) continue;
+              isHeader (entry.basename)) continue :walk;
             try std.fs.deleteFileAbsolute (entry_abspath);
             std.debug.print ("[clean] {s}\n", .{ entry_abspath, });
             flag = true;
           },
           .directory => {
             std.fs.deleteDirAbsolute (entry_abspath) catch |err|
-              if (err == error.DirNotEmpty) continue else return err;
+              if (err == error.DirNotEmpty) continue :walk else return err;
             std.debug.print ("[clean] {s}\n", .{ entry_abspath, });
             flag = true;
           },
