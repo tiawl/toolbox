@@ -63,11 +63,3 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
     out.* = std.mem.trim (u8, try stdout.toOwnedSlice (), " \n")
   else std.debug.print ("{s}", .{ stdout.items, });
 }
-
-pub fn tag (builder: *std.Build, repo: [] const u8) ![] const u8
-{
-  const path = try builder.build_root.join (builder.allocator,
-    &.{ ".versions", repo, });
-  return std.mem.trim (u8, try builder.build_root.handle.readFileAlloc (
-    builder.allocator, path, std.math.maxInt (usize)), " \n");
-}
