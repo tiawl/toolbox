@@ -1,5 +1,9 @@
 const std = @import ("std");
 
+const @"test" = @import ("test.zig");
+pub const isSource = @"test".isSource;
+pub const isHeader = @"test".isHeader;
+
 pub fn write (path: [] const u8, name: [] const u8,
   content: [] const u8) !void
 {
@@ -62,4 +66,55 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
   if (proc.stdout) |out|
     out.* = std.mem.trim (u8, try stdout.toOwnedSlice (), " \n")
   else std.debug.print ("{s}", .{ stdout.items, });
+}
+
+pub fn clean (builder: *std.Build, paths: [] const [] const u8,
+  extensions: [] const [] const u8) !void
+{
+  var flag: bool = undefined;
+  var dir: std.fs.Dir = undefined;
+  var root_path: [] const u8 = undefined;
+  var walker: std.fs.Dir.Walker = undefined;
+
+  for (paths) |path|
+  {
+    dir = try builder.build_root.handle.openDir (path, .{ .iterate = true, });
+    defer dir.close ();
+
+    root_path = try builder.build_root.join (builder.allocator, &.{ path, });
+
+    flag = true;
+    while (flag)
+    {
+      flag = false;
+
+      walker = try dir.walk (builder.allocator);
+      defer walker.deinit ();
+
+      while (try walker.next ()) |*entry|
+      {
+        const entry_abspath = try std.fs.path.join (builder.allocator,
+          &.{ root_path, entry.path, });
+        switch (entry.kind)
+        {
+          .file => {
+            for (extensions) |ext|
+              if (std.mem.endsWith (u8, entry.basename, ext)) continue;
+            if (isSource (entry.basename) or
+              isHeader (entry.basename)) continue;
+            try std.fs.deleteFileAbsolute (entry_abspath);
+            std.debug.print ("[clean] {s}\n", .{ entry_abspath, });
+            flag = true;
+          },
+          .directory => {
+            std.fs.deleteDirAbsolute (entry_abspath) catch |err|
+              if (err == error.DirNotEmpty) continue else return err;
+            std.debug.print ("[clean] {s}\n", .{ entry_abspath, });
+            flag = true;
+          },
+          else => {},
+        }
+      }
+    }
+  }
 }
