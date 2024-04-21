@@ -10,9 +10,10 @@ pub const write = command.write;
 pub const make = command.make;
 pub const copy = command.copy;
 pub const run = command.run;
-pub const tag = command.tag;
+pub const clean = command.clean;
 
 const deps = @import ("build/deps.zig");
+pub const version = deps.version;
 pub const isSubmodule = deps.isSubmodule;
 pub const Repository = deps.Repository;
 pub const Dependencies = deps.Dependencies;

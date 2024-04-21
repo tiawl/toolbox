@@ -3,10 +3,17 @@ const builtin = @import ("builtin");
 
 const command = @import ("command.zig");
 pub const run = command.run;
-pub const tag = command.tag;
 
 const @"test" = @import ("test.zig");
 pub const exists = @"test".exists;
+
+pub fn version (builder: *std.Build, repo: [] const u8) ![] const u8
+{
+  const path = try builder.build_root.join (builder.allocator,
+    &.{ ".versions", repo, });
+  return std.mem.trim (u8, try builder.build_root.handle.readFileAlloc (
+    builder.allocator, path, std.math.maxInt (usize)), " \n");
+}
 
 pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
 {
@@ -41,12 +48,12 @@ pub const Repository = struct
   name: [] const u8,
   id: u32 = 0,
   url: [] const u8 = undefined,
-  latest_tag: [] const u8 = undefined,
+  latest: [] const u8 = undefined,
 
-  fn searchTag (self: @This (), builder: *std.Build) !@This ()
+  fn searchLatest (self: @This (), builder: *std.Build) !@This ()
   {
-    return if (self.id == 0) Repository.Github.searchTag (self, builder)
-      else Repository.Gitlab.searchTag (self, builder);
+    return if (self.id == 0) Repository.Github.searchLatest (self, builder)
+      else Repository.Gitlab.searchLatest (self, builder);
   }
 
   pub const Github = struct
@@ -60,16 +67,16 @@ pub const Repository = struct
       };
     }
 
-    fn searchTag (self: Repository, builder: *std.Build) !Repository
+    fn searchLatest (self: Repository, builder: *std.Build) !Repository
     {
       var endpoint = try std.fmt.allocPrint (builder.allocator,
         "/repos/{s}/tags", .{ self.name, });
 
-      var raw_tags: [] u8 = "";
       var raw: [] u8 = "";
+      var raw_page: [] u8 = "";
       var page: u32 = 1;
       var page_field: [] const u8 = undefined;
-      while (raw_tags.len == 0 or raw.len > 0)
+      while (raw.len == 0 or raw_page.len > 0)
       {
         page_field =
           try std.fmt.allocPrint (builder.allocator, "page={}", .{ page, });
@@ -77,18 +84,18 @@ pub const Repository = struct
           "-H", "'X-GitHub-Api-Version: 2022-11-28'",
           "-H", "'Accept: application/vnd.github+json'",
           "--method", "GET", "-F", "per_page=100", "-F", page_field, endpoint,
-          }, .stdout = &raw, });
-        raw = @constCast (std.mem.trim (u8, raw, "[]"));
-        raw_tags = try std.fmt.allocPrint (builder.allocator, "{s}{s}{s}",
-          .{ raw_tags, if (raw.len > 0 and raw_tags.len > 0) "," else "",
-             raw, });
+          }, .stdout = &raw_page, });
+        raw_page = @constCast (std.mem.trim (u8, raw_page, "[]"));
+        raw = try std.fmt.allocPrint (builder.allocator, "{s}{s}{s}",
+          .{ raw, if (raw_page.len > 0 and raw.len > 0) "," else "",
+             raw_page, });
         page += 1;
       }
-      raw_tags = try std.fmt.allocPrint (builder.allocator, "[{s}]",
-        .{ raw_tags, });
+      raw = try std.fmt.allocPrint (builder.allocator, "[{s}]",
+        .{ raw, });
 
       const tags = try std.json.parseFromSlice (std.json.Value,
-        builder.allocator, raw_tags, .{});
+        builder.allocator, raw, .{});
       defer tags.deinit ();
 
       endpoint = try std.fmt.allocPrint (builder.allocator,
@@ -114,16 +121,16 @@ pub const Repository = struct
           builder.allocator, raw, .{});
         defer commits.deinit ();
 
-        for (commits.value.array.items) |*commit_value|
+        for (commits.value.array.items) |*commit|
         {
-          for (tags.value.array.items) |*tag_value|
+          for (tags.value.array.items) |*tag|
           {
             if (std.mem.eql (u8,
-              commit_value.object.get ("sha").?.string,
-              tag_value.object.get ("commit").?.object.get ("sha").?.string))
+              commit.object.get ("sha").?.string,
+              tag.object.get ("commit").?.object.get ("sha").?.string))
             {
-              result.latest_tag = builder.dupe (
-                tag_value.object.get ("name").?.string);
+              result.latest = builder.dupe (
+                tag.object.get ("name").?.string);
               break :loop;
             }
           }
@@ -146,33 +153,33 @@ pub const Repository = struct
       };
     }
 
-    fn searchTag (self: Repository, builder: *std.Build) !Repository
+    fn searchLatest (self: Repository, builder: *std.Build) !Repository
     {
       const pageless_endpoint = try std.fmt.allocPrint (builder.allocator,
         "https://gitlab.freedesktop.org/api/v4/projects/{}/repository/tags?per_page=100&page=",
         .{ self.id, });
 
-      var raw_tags: [] u8 = "";
       var raw: [] u8 = "";
+      var raw_page: [] u8 = "";
       var page: u32 = 1;
       var endpoint: [] const u8 = undefined;
-      while (raw_tags.len == 0 or raw.len > 0)
+      while (raw.len == 0 or raw_page.len > 0)
       {
         endpoint = try std.fmt.allocPrint (builder.allocator, "{s}{}",
           .{ pageless_endpoint, page, });
         try run (builder, .{ .argv = &[_][] const u8 { "curl", "-sS",
-          "--request", "GET", "--url", endpoint, }, .stdout = &raw, });
-        raw = @constCast (std.mem.trim (u8, raw, "[]"));
-        raw_tags = try std.fmt.allocPrint (builder.allocator, "{s}{s}{s}",
-          .{ raw_tags, if (raw.len > 0 and raw_tags.len > 0) "," else "",
-             raw, });
+          "--request", "GET", "--url", endpoint, }, .stdout = &raw_page, });
+        raw_page = @constCast (std.mem.trim (u8, raw_page, "[]"));
+        raw = try std.fmt.allocPrint (builder.allocator, "{s}{s}{s}",
+          .{ raw, if (raw_page.len > 0 and raw.len > 0) "," else "",
+             raw_page, });
         page += 1;
       }
-      raw_tags = try std.fmt.allocPrint (builder.allocator, "[{s}]",
-        .{ raw_tags, });
+      raw = try std.fmt.allocPrint (builder.allocator, "[{s}]",
+        .{ raw, });
 
       const tags = try std.json.parseFromSlice (std.json.Value,
-        builder.allocator, raw_tags, .{});
+        builder.allocator, raw, .{});
       defer tags.deinit ();
 
       var result: Repository = .{
@@ -183,17 +190,17 @@ pub const Repository = struct
 
       var latest_ts: u64 = 0;
       var commit_ts: u64 = 0;
-      for (tags.value.array.items) |*tag_value|
+      for (tags.value.array.items) |*tag|
       {
         try run (builder, .{ .argv = &[_][] const u8 { "date", "-d",
-          tag_value.object.get ("commit").?.object.get ("created_at").?.string,
-          "+%s", }, .stdout = &raw, });
-        commit_ts = try std.fmt.parseInt (u64, raw, 10);
+          tag.object.get ("commit").?.object.get ("created_at").?.string,
+          "+%s", }, .stdout = &raw_page, });
+        commit_ts = try std.fmt.parseInt (u64, raw_page, 10);
         if (commit_ts > latest_ts)
         {
           latest_ts = commit_ts;
-          result.latest_tag =
-            builder.dupe (tag_value.object.get ("name").?.string);
+          result.latest =
+            builder.dupe (tag.object.get ("name").?.string);
         }
       }
 
@@ -238,13 +245,13 @@ pub const Dependencies = struct
     repo: [] const u8, path: [] const u8) !void
   {
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
-      "--branch", try tag (builder, repo), "--depth", "1",
+      "--branch", try version (builder, repo), "--depth", "1",
       self.@"extern".get (repo).?.url, path, }, });
   }
 
   pub fn fetch (self: *@This (), builder: *std.Build, name: [] const u8) !void
   {
-    try self.searchTags (builder);
+    try self.searchLatest (builder);
     try self.fetchExtern (builder);
     try self.fetchIntern (builder, name);
     try fetchSubmodules (builder);
@@ -252,14 +259,14 @@ pub const Dependencies = struct
     std.process.exit (0);
   }
 
-  fn searchTags (self: *@This (), builder: *std.Build) !void
+  fn searchLatest (self: *@This (), builder: *std.Build) !void
   {
     for (&[_] *std.StringHashMap (Repository) {
       &self.@"extern", &self.intern,
     }) |*dep| {
       var it = dep.*.keyIterator ();
       while (it.next ()) |key|
-        try dep.*.put (key.*, try dep.*.get (key.*).?.searchTag (builder));
+        try dep.*.put (key.*, try dep.*.get (key.*).?.searchLatest (builder));
     }
   }
 
@@ -275,7 +282,7 @@ pub const Dependencies = struct
       try versions_dir.deleteFile (key.*);
       try versions_dir.writeFile (key.*,
         try std.fmt.allocPrint (builder.allocator, "{s}\n",
-          .{ self.@"extern".get (key.*).?.latest_tag, }));
+          .{ self.@"extern".get (key.*).?.latest, }));
     }
   }
 
@@ -320,7 +327,7 @@ pub const Dependencies = struct
         const url = try std.fmt.allocPrint (builder.allocator,
           "{s}/archive/refs/tags/{s}.tar.gz",
           .{ self.intern.get (key.*).?.url,
-             self.intern.get (key.*).?.latest_tag, });
+             self.intern.get (key.*).?.latest, });
         var hash: [] u8 = undefined;
         try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
           .stdout = &hash, });
