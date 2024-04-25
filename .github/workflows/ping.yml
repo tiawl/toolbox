@@ -1,12 +1,14 @@
-name: ci
+name: cd ping
 
 on:
-  pull_request:
-    branches:
-      - trunk
+  push:
+    tags:
+      - '*'
 
 jobs:
-  build:
+  ping:
+    permissions:
+      contents: write
     strategy:
       matrix:
         repo:
@@ -21,12 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: tiawl/spaceporn-dep-action-ci@v1
+    - uses: tiawl/spaceporn-dep-action-cd-ping@v1
       with:
-        repository: "${{ github.repository }}"
-        sha: "${{ github.sha }}"
+        repository_name: "${{ github.event.repository.name }}"
         user: "${{ matrix.repo }}.zig"
-        token: "${{ github.token }}"
-        test_build: 'false'
-        test_update: 'true'
-        test_fetch: 'true'
+        tag: "${{ github.ref_name }}"
+        token: "${{ secrets.PAT }}"
