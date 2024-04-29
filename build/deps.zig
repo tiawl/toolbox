@@ -96,15 +96,19 @@ pub const Repository = struct
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone", "--bare",
       "--filter=blob:none", self.getUrl (), tmp, }, });
 
-    var tags: [] u8 = undefined;
-    try run (builder, .{ .argv = &[_][] const u8 { "git", "tag",
-      "--sort=-committerdate", }, .cwd = tmp, .stdout = &tags, });
+    var commits: [] u8 = undefined;
+    try run (builder, .{ .argv = &[_][] const u8 { "git", "log", "--all",
+      "--format=%h", }, .cwd = tmp, .stdout = &commits, });
 
-    var it = std.mem.tokenizeAny (u8, tags, " \n");
-    while (it.next ()) |token|
+    var tag: [] u8 = undefined;
+    var it = std.mem.tokenizeAny (u8, commits, " \n");
+    while (it.next ()) |commit|
     {
-      if (valid (token)) return self.setLatest (builder, token);
-    } else return error.NoValidTag;
+      try run (builder, .{ .argv = &[_][] const u8 { "git", "describe",
+        "--exact-match", commit, }, .cwd = tmp, .stdout = &tag,
+        .ignore_errors = true, });
+      if (valid (tag)) return self.setLatest (builder, tag);
+    };
   }
 
   const Github = struct
@@ -133,10 +137,10 @@ pub const Dependencies = struct
   __extern: std.StringHashMap (Repository),
 
   // mandatory getters function
-  pub fn getIntern (self: @This (), key: [] const u8) Repository { self.__intern.get (key).?; }
-  pub fn getExtern (self: @This (), key: [] const u8) Repository { self.__extern.get (key).?; }
-  pub fn getInterns (self: @This ()) std.hash_map.HashMap.valueIterator { self.__intern.valueIterator (); }
-  pub fn getExterns (self: @This ()) std.hash_map.HashMap.valueIterator { self.__extern.valueIterator (); }
+  pub fn getIntern (self: @This (), key: [] const u8) Repository { return self.__intern.get (key).?; }
+  pub fn getExtern (self: @This (), key: [] const u8) Repository { return self.__extern.get (key).?; }
+  pub fn getInterns (self: @This ()) std.StringHashMap (Repository).KeyIterator { return self.__intern.keyIterator (); }
+  pub fn getExterns (self: @This ()) std.StringHashMap (Repository).KeyIterator { return self.__extern.keyIterator (); }
 
   pub fn init (builder: *std.Build, name: [] const u8, intern_proto: anytype,
     extern_proto: anytype) !@This ()
@@ -163,11 +167,14 @@ pub const Dependencies = struct
       }
     }
 
-    try self.fetchExtern (builder);
-    try self.fetchIntern (builder, name);
-    try fetchSubmodules (builder);
+    if (fetch)
+    {
+      try self.fetchExtern (builder);
+      try self.fetchIntern (builder, name);
+      try fetchSubmodules (builder);
+      std.process.exit (0);
+    }
 
-    if (fetch) std.process.exit (0);
     return self;
   }
 
@@ -176,7 +183,7 @@ pub const Dependencies = struct
   {
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
       "--branch", try version (builder, repo), "--depth", "1",
-      self.getExtern (repo).url, path, }, });
+      self.getExtern (repo).getUrl (), path, }, });
   }
 
   fn fetchExtern (self: @This (), builder: *std.Build) !void
@@ -186,12 +193,12 @@ pub const Dependencies = struct
     defer versions_dir.close ();
 
     var it = self.getExterns ();
-    while (it.next ()) |ext|
+    while (it.next ()) |key|
     {
-      try versions_dir.deleteFile (ext.getName ());
-      try versions_dir.writeFile (ext.getName (),
+      try versions_dir.deleteFile (key.*);
+      try versions_dir.writeFile (key.*,
         try std.fmt.allocPrint (builder.allocator, "{s}\n",
-          .{ ext.getLatest (), }));
+          .{ self.getExtern (key.*).getLatest (), }));
     }
   }
 
@@ -231,11 +238,12 @@ pub const Dependencies = struct
 
     {
       var it = self.getInterns ();
-      while (it.next ()) |intern|
+      while (it.next ()) |key|
       {
         const url = try std.fmt.allocPrint (builder.allocator,
           "{s}/archive/refs/tags/{s}.tar.gz",
-          .{ intern.getUrl (), intern.getLatest (), });
+          .{ self.getIntern (key.*).getUrl (),
+             self.getIntern (key.*).getLatest (), });
         var hash: [] u8 = undefined;
         try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
           .stdout = &hash, });
@@ -245,7 +253,7 @@ pub const Dependencies = struct
           \\  .hash = "{s}",
           \\{c},
           \\
-        , .{ intern.getName (), '{', url, hash, '}', });
+        , .{ key.*, '{', url, hash, '}', });
       }
     }
 
