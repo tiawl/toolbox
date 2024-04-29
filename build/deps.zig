@@ -96,14 +96,12 @@ pub const Repository = struct
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone", "--bare",
       "--filter=blob:none", self.getUrl (), tmp, }, });
 
-    var commits: [] u8 = undefined;
-    try run (builder, .{ .argv = &[_][] const u8 { "git", "log", "--all",
-      "--format=%h", }, .cwd = tmp, .stdout = &commits, });
-
+    var commit: [] const u8 = undefined;
     var tag: [] u8 = undefined;
     var it = std.mem.tokenizeAny (u8, commits, " \n");
-    while (it.next ()) |commit|
+    for (0 .. std.math.maxInt (usize)) |i|
     {
+      commit = try std.fmt.allocPrint (builder.allocator, "HEAD~{}", .{ i, });
       try run (builder, .{ .argv = &[_][] const u8 { "git", "describe",
         "--exact-match", commit, }, .cwd = tmp, .stdout = &tag,
         .ignore_errors = true, });
