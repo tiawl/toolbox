@@ -45,17 +45,41 @@ pub const Repository = struct
 {
   pub const API = enum { github, gitlab, };
 
-  name: [] const u8,
-  url: [] const u8 = undefined,
-  latest: [] const u8 = undefined,
+  // prefixed attributes
+  __name: [] const u8,
+  __url: [] const u8,
+  __latest: [] const u8 = undefined,
+
+  // mandatory getters function
+  fn getName (self: @This ()) [] const u8 { return self.__name; }
+  fn getUrl (self: @This ()) [] const u8 { return self.__url; }
+  fn getLatest (self: @This ()) [] const u8 { return self.__latest; }
+
+  // mandatory new function
+  fn new (builder: *std.Build, name: [] const u8, url: [] const u8, latest: ?[] const u8) @This ()
+  {
+    var self = @This () {
+      .__name = builder.dupe (name),
+      .__url = builder.dupe (url),
+    };
+    if (latest) |tag| self.__latest = builder.dupe (tag);
+    return self;
+  }
 
   fn init (builder: *std.Build, name: [] const u8, api: API) !@This ()
   {
-    return switch (api)
+    return new (builder, name, switch (api)
     {
-      .github => try Github.init (builder, name),
-      .gitlab => try Gitlab.init (builder, name),
-    };
+      .github => try Github.url (builder, name),
+      .gitlab => try Gitlab.url (builder, name),
+    }, null);
+  }
+
+  // immutable setters
+  fn setLatest (self: @This (), builder: *std.Build,
+    latest: [] const u8) @This ()
+  {
+    return new (builder, self.getName (), self.getUrl (), latest);
   }
 
   fn valid (tag: [] const u8) bool
@@ -70,72 +94,82 @@ pub const Repository = struct
     const tmp = try tmp_dir.dir.realpathAlloc (builder.allocator, ".");
 
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone", "--bare",
-      "--filter=blob:none", self.url, tmp, }, });
+      "--filter=blob:none", self.getUrl (), tmp, }, });
 
-    var tags: [] u8 = undefined;
-    try run (builder, .{ .argv = &[_][] const u8 { "git", "tag",
-      "--sort=-committerdate", }, .cwd = tmp, .stdout = &tags, });
-
-    var it = std.mem.tokenizeAny (u8, tags, " \n");
-    while (it.next ()) |token|
+    var commit: [] const u8 = undefined;
+    var tag: [] u8 = undefined;
+    for (0 .. std.math.maxInt (usize)) |i|
     {
-      if (valid (token))
-      {
-        return .{
-          .name = builder.dupe (self.name),
-          .url = builder.dupe (self.url),
-          .latest = builder.dupe (token),
-        };
-      }
+      commit = try std.fmt.allocPrint (builder.allocator, "HEAD~{}", .{ i, });
+      try run (builder, .{ .argv = &[_][] const u8 { "git", "describe",
+        "--tags", "--exact-match", commit, }, .cwd = tmp, .stdout = &tag,
+        .ignore_errors = true, });
+      if (valid (tag)) return self.setLatest (builder, tag);
     } else return error.NoValidTag;
   }
 
   const Github = struct
   {
-    fn init (builder: *std.Build, name: [] const u8) !Repository
+    fn url (builder: *std.Build, name: [] const u8) ![] const u8
     {
-      return .{
-        .name = name,
-        .url = try std.fmt.allocPrint (builder.allocator,
-          "https://github.com/{s}", .{ name, }),
-      };
+      return try std.fmt.allocPrint (builder.allocator,
+        "https://github.com/{s}", .{ name, });
     }
   };
 
   const Gitlab = struct
   {
-    fn init (builder: *std.Build, name: [] const u8) !Repository
+    fn url (builder: *std.Build, name: [] const u8) ![] const u8
     {
-      return .{
-        .name = name,
-        .url = try std.fmt.allocPrint (builder.allocator,
-          "https://gitlab.freedesktop.org/{s}", .{ name, }),
-      };
+      return try std.fmt.allocPrint (builder.allocator,
+        "https://gitlab.freedesktop.org/{s}", .{ name, });
     }
   };
 };
 
 pub const Dependencies = struct
 {
-  intern: std.StringHashMap (Repository),
-  @"extern": std.StringHashMap (Repository),
+  // prefixed attributes
+  __intern: std.StringHashMap (Repository),
+  __extern: std.StringHashMap (Repository),
 
-  pub fn init (builder: *std.Build, intern_proto: anytype,
+  // mandatory getters function
+  pub fn getIntern (self: @This (), key: [] const u8) Repository { return self.__intern.get (key).?; }
+  pub fn getExtern (self: @This (), key: [] const u8) Repository { return self.__extern.get (key).?; }
+  pub fn getInterns (self: @This ()) std.StringHashMap (Repository).KeyIterator { return self.__intern.keyIterator (); }
+  pub fn getExterns (self: @This ()) std.StringHashMap (Repository).KeyIterator { return self.__extern.keyIterator (); }
+
+  pub fn init (builder: *std.Build, name: [] const u8, intern_proto: anytype,
     extern_proto: anytype) !@This ()
   {
     var self = @This () {
-      .intern = std.StringHashMap (Repository).init (builder.allocator),
-      .@"extern" = std.StringHashMap (Repository).init (builder.allocator),
+      .__intern = std.StringHashMap (Repository).init (builder.allocator),
+      .__extern = std.StringHashMap (Repository).init (builder.allocator),
     };
 
+    const fetch = builder.option (bool, "fetch",
+      "Update .versions folder and build.zig.zon then stop execution")
+        orelse false;
+
+    var repository: Repository = undefined;
     inline for (.{ intern_proto, extern_proto, },
-      &.{ "intern", "extern", }) |proto, name|
+      &.{ "__intern", "__extern", }) |proto, attr|
     {
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
-        try @field (self, name).put (field.name, try Repository.init (builder,
-          @field (proto, field.name).name, @field (proto, field.name).api));
+        repository = try Repository.init (builder,
+          @field (proto, field.name).name, @field (proto, field.name).api);
+        if (fetch) repository = try repository.searchLatest (builder);
+        try @field (self, attr).put (field.name, repository);
       }
+    }
+
+    if (fetch)
+    {
+      try self.fetchExtern (builder);
+      try self.fetchIntern (builder, name);
+      try fetchSubmodules (builder);
+      std.process.exit (0);
     }
 
     return self;
@@ -146,47 +180,26 @@ pub const Dependencies = struct
   {
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
       "--branch", try version (builder, repo), "--depth", "1",
-      self.@"extern".get (repo).?.url, path, }, });
+      self.getExtern (repo).getUrl (), path, }, });
   }
 
-  pub fn fetch (self: *@This (), builder: *std.Build, name: [] const u8) !void
-  {
-    try self.searchLatest (builder);
-    try self.fetchExtern (builder);
-    try self.fetchIntern (builder, name);
-    try fetchSubmodules (builder);
-
-    std.process.exit (0);
-  }
-
-  fn searchLatest (self: *@This (), builder: *std.Build) !void
-  {
-    for (&[_] *std.StringHashMap (Repository) {
-      &self.@"extern", &self.intern,
-    }) |*dep| {
-      var it = dep.*.keyIterator ();
-      while (it.next ()) |key|
-        try dep.*.put (key.*, try dep.*.get (key.*).?.searchLatest (builder));
-    }
-  }
-
-  fn fetchExtern (self: *@This (), builder: *std.Build) !void
+  fn fetchExtern (self: @This (), builder: *std.Build) !void
   {
     var versions_dir =
       try builder.build_root.handle.openDir (".versions", .{});
     defer versions_dir.close ();
 
-    var it = self.@"extern".keyIterator ();
+    var it = self.getExterns ();
     while (it.next ()) |key|
     {
       try versions_dir.deleteFile (key.*);
       try versions_dir.writeFile (key.*,
         try std.fmt.allocPrint (builder.allocator, "{s}\n",
-          .{ self.@"extern".get (key.*).?.latest, }));
+          .{ self.getExtern (key.*).getLatest (), }));
     }
   }
 
-  fn fetchIntern (self: *@This (), builder: *std.Build,
+  fn fetchIntern (self: @This (), builder: *std.Build,
     name: [] const u8) !void
   {
     var buffer = std.ArrayList (u8).init (builder.allocator);
@@ -221,13 +234,13 @@ pub const Dependencies = struct
     try writer.print ("{c},\n.dependencies = .{c}\n", .{ '}', '{', });
 
     {
-      var it = self.intern.keyIterator ();
+      var it = self.getInterns ();
       while (it.next ()) |key|
       {
         const url = try std.fmt.allocPrint (builder.allocator,
           "{s}/archive/refs/tags/{s}.tar.gz",
-          .{ self.intern.get (key.*).?.url,
-             self.intern.get (key.*).?.latest, });
+          .{ self.getIntern (key.*).getUrl (),
+             self.getIntern (key.*).getLatest (), });
         var hash: [] u8 = undefined;
         try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
           .stdout = &hash, });
