@@ -66,7 +66,7 @@ pub const Repository = struct
 
   fn searchLatest (self: @This (), builder: *std.Build) !@This ()
   {
-    var tmp_dir = std.testing.tmpDir;
+    var tmp_dir = std.testing.tmpDir (.{});
     const tmp = tmp_dir.dir.realpathAlloc (builder.allocator, ".");
 
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone", "--bare",
