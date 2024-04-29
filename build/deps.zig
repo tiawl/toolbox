@@ -98,7 +98,6 @@ pub const Repository = struct
 
     var commit: [] const u8 = undefined;
     var tag: [] u8 = undefined;
-    var it = std.mem.tokenizeAny (u8, commits, " \n");
     for (0 .. std.math.maxInt (usize)) |i|
     {
       commit = try std.fmt.allocPrint (builder.allocator, "HEAD~{}", .{ i, });
