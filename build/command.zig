@@ -58,7 +58,7 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
     term = try child.wait ();
   }
   const exit_success = std.ChildProcess.Term { .Exited = 0, };
-  if (proc.ignore_errors and stderr.items.len > 0 and
+  if (!proc.ignore_errors and stderr.items.len > 0 and
     !std.meta.eql (term, exit_success))
       std.debug.print ("\x1b[31m{s}\x1b[0m", .{ stderr.items, });
   if (!proc.ignore_errors and proc.wait == null)
