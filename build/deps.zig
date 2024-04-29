@@ -103,7 +103,7 @@ pub const Repository = struct
     {
       commit = try std.fmt.allocPrint (builder.allocator, "HEAD~{}", .{ i, });
       try run (builder, .{ .argv = &[_][] const u8 { "git", "describe",
-        "--exact-match", commit, }, .cwd = tmp, .stdout = &tag,
+        "--tags", "--exact-match", commit, }, .cwd = tmp, .stdout = &tag,
         .ignore_errors = true, });
       if (valid (tag)) return self.setLatest (builder, tag);
     } else return error.NoValidTag;
