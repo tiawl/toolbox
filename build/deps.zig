@@ -46,14 +46,16 @@ pub const Repository = struct
   pub const API = enum { github, gitlab, };
 
   name: [] const u8,
-  id: u32 = 0,
   url: [] const u8 = undefined,
   latest: [] const u8 = undefined,
 
-  fn searchLatest (self: @This (), builder: *std.Build) !@This ()
+  fn init (builder: *std.Build, name: [] const u8, api: API) !@This ()
   {
-    return if (self.id == 0) Repository.Github.searchLatest (self, builder)
-      else Repository.Gitlab.searchLatest (self, builder);
+    return switch (api)
+    {
+      .github => try Github.init (builder, name),
+      .gitlab => try Gitlab.init (builder, name),
+    };
   }
 
   fn valid (tag: [] const u8) bool
@@ -62,7 +64,33 @@ pub const Repository = struct
       (std.mem.indexOfScalar (u8, tag, '.') != null);
   }
 
-  pub const Github = struct
+  fn searchLatest (self: *@This (), builder: *std.Build) !@This ()
+  {
+    var tmp_dir = std.testing.tmpDir;
+    const tmp = tmp_dir.dir.realpathAlloc (builder.allocator, ".");
+
+    try run (builder, .{ .argv = &[_][] const u8 { "git", "clone", "--bare",
+      "--filter=blob:none", self.url, tmp, }, });
+
+    var tags: [] u8 = undefined;
+    try run (builder, .{ .argv = &[_][] const u8 { "git", "tag",
+      "--sort=-committerdate", }, .cwd = tmp, .stdout = &tags, });
+
+    var it = std.mem.tokenizeAny (u8, tags, " \n");
+    while (it.next ()) |token|
+    {
+      if (valid (token))
+      {
+        return .{
+          .name = builder.dupe (self.name),
+          .url = builder.dupe (self.url),
+          .latest = builder.dupe (token),
+        };
+      }
+    } else return error.NoValidTag;
+  }
+
+  const Github = struct
   {
     fn init (builder: *std.Build, name: [] const u8) !Repository
     {
@@ -72,147 +100,17 @@ pub const Repository = struct
           "https://github.com/{s}", .{ name, }),
       };
     }
-
-    fn searchLatest (self: Repository, builder: *std.Build) !Repository
-    {
-      var endpoint = try std.fmt.allocPrint (builder.allocator,
-        "/repos/{s}/tags", .{ self.name, });
-
-      var raw: [] u8 = "";
-      var raw_page: [] u8 = "";
-      var page: u32 = 1;
-      var page_field: [] const u8 = undefined;
-      while (raw.len == 0 or raw_page.len > 0)
-      {
-        page_field =
-          try std.fmt.allocPrint (builder.allocator, "page={}", .{ page, });
-        try run (builder, .{ .argv = &[_][] const u8 { "gh", "api",
-          "-H", "'X-GitHub-Api-Version: 2022-11-28'",
-          "-H", "'Accept: application/vnd.github+json'",
-          "--method", "GET", "-F", "per_page=100", "-F", page_field, endpoint,
-          }, .stdout = &raw_page, });
-        raw_page = @constCast (std.mem.trim (u8, raw_page, "[]"));
-        raw = try std.fmt.allocPrint (builder.allocator, "{s}{s}{s}",
-          .{ raw, if (raw_page.len > 0 and raw.len > 0) "," else "",
-             raw_page, });
-        page += 1;
-      }
-      raw = try std.fmt.allocPrint (builder.allocator, "[{s}]",
-        .{ raw, });
-
-      const tags = try std.json.parseFromSlice (std.json.Value,
-        builder.allocator, raw, .{});
-      defer tags.deinit ();
-
-      endpoint = try std.fmt.allocPrint (builder.allocator,
-        "/repos/{s}/commits", .{ self.name, });
-
-      var result: Repository = .{
-        .name = builder.dupe (self.name),
-        .url = builder.dupe (self.url),
-      };
-
-      page = 1;
-      loop: while (true)
-      {
-        page_field =
-          try std.fmt.allocPrint (builder.allocator, "page={}", .{ page, });
-        try run (builder, .{ .argv = &[_][] const u8 { "gh", "api",
-          "-H", "'X-GitHub-Api-Version: 2022-11-28'",
-          "-H", "'Accept: application/vnd.github+json'",
-          "--method", "GET", "-F", "per_page=100", "-F", page_field, endpoint,
-          }, .stdout = &raw, });
-
-        const commits = try std.json.parseFromSlice (std.json.Value,
-          builder.allocator, raw, .{});
-        defer commits.deinit ();
-
-        for (commits.value.array.items) |*commit|
-        {
-          for (tags.value.array.items) |*tag|
-          {
-            if (!valid (tag.object.get ("name").?.string)) continue;
-            if (std.mem.eql (u8,
-              commit.object.get ("sha").?.string,
-              tag.object.get ("commit").?.object.get ("sha").?.string))
-            {
-              result.latest = builder.dupe (
-                tag.object.get ("name").?.string);
-              break :loop;
-            }
-          }
-        }
-      }
-
-      return result;
-    }
   };
 
-  pub const Gitlab = struct
+  const Gitlab = struct
   {
-    fn init (builder: *std.Build, name: [] const u8, id: u32) !Repository
+    fn init (builder: *std.Build, name: [] const u8) !Repository
     {
       return .{
         .name = name,
-        .id = id,
         .url = try std.fmt.allocPrint (builder.allocator,
           "https://gitlab.freedesktop.org/{s}", .{ name, }),
       };
-    }
-
-    fn searchLatest (self: Repository, builder: *std.Build) !Repository
-    {
-      const pageless_endpoint = try std.fmt.allocPrint (builder.allocator,
-        "https://gitlab.freedesktop.org/api/v4/projects/{}/repository/tags?per_page=100&page=",
-        .{ self.id, });
-
-      var raw: [] u8 = "";
-      var raw_page: [] u8 = "";
-      var page: u32 = 1;
-      var endpoint: [] const u8 = undefined;
-      while (raw.len == 0 or raw_page.len > 0)
-      {
-        endpoint = try std.fmt.allocPrint (builder.allocator, "{s}{}",
-          .{ pageless_endpoint, page, });
-        try run (builder, .{ .argv = &[_][] const u8 { "curl", "-sS",
-          "--request", "GET", "--url", endpoint, }, .stdout = &raw_page, });
-        raw_page = @constCast (std.mem.trim (u8, raw_page, "[]"));
-        raw = try std.fmt.allocPrint (builder.allocator, "{s}{s}{s}",
-          .{ raw, if (raw_page.len > 0 and raw.len > 0) "," else "",
-             raw_page, });
-        page += 1;
-      }
-      raw = try std.fmt.allocPrint (builder.allocator, "[{s}]",
-        .{ raw, });
-
-      const tags = try std.json.parseFromSlice (std.json.Value,
-        builder.allocator, raw, .{});
-      defer tags.deinit ();
-
-      var result: Repository = .{
-        .name = builder.dupe (self.name),
-        .id = self.id,
-        .url = builder.dupe (self.url),
-      };
-
-      var latest_ts: u64 = 0;
-      var commit_ts: u64 = 0;
-      for (tags.value.array.items) |*tag|
-      {
-        if (!valid (tag.object.get ("name").?.string)) continue;
-        try run (builder, .{ .argv = &[_][] const u8 { "date", "-d",
-          tag.object.get ("commit").?.object.get ("created_at").?.string,
-          "+%s", }, .stdout = &raw_page, });
-        commit_ts = try std.fmt.parseInt (u64, raw_page, 10);
-        if (commit_ts > latest_ts)
-        {
-          latest_ts = commit_ts;
-          result.latest =
-            builder.dupe (tag.object.get ("name").?.string);
-        }
-      }
-
-      return result;
     }
   };
 };
@@ -235,14 +133,8 @@ pub const Dependencies = struct
     {
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
-        try @field (self, name).put (field.name,
-          switch (@field (proto, field.name).api)
-          {
-            .github => try Repository.Github.init (builder,
-              @field (proto, field.name).name),
-            .gitlab => try Repository.Gitlab.init (builder,
-              @field (proto, field.name).name, @field (proto, field.name).id),
-          });
+        try @field (self, name).put (field.name, try Repository.init (builder,
+          @field (proto, field.name).name, @field (proto, field.name).api));
       }
     }
 
