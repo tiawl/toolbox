@@ -64,7 +64,7 @@ pub const Repository = struct
       (std.mem.indexOfScalar (u8, tag, '.') != null);
   }
 
-  fn searchLatest (self: *@This (), builder: *std.Build) !@This ()
+  fn searchLatest (self: @This (), builder: *std.Build) !@This ()
   {
     var tmp_dir = std.testing.tmpDir;
     const tmp = tmp_dir.dir.realpathAlloc (builder.allocator, ".");
