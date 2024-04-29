@@ -108,7 +108,7 @@ pub const Repository = struct
         "--exact-match", commit, }, .cwd = tmp, .stdout = &tag,
         .ignore_errors = true, });
       if (valid (tag)) return self.setLatest (builder, tag);
-    };
+    } else error.NoValidTag;
   }
 
   const Github = struct
