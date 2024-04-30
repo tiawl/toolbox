@@ -1,9 +1,9 @@
 const std = @import ("std");
 
-const cache = @import ("build/cache.zig");
-pub const addHeader = cache.addHeader;
-pub const addInclude = cache.addInclude;
-pub const addSource = cache.addSource;
+const compilation = @import ("build/compilation.zig");
+pub const addHeader = compilation.addHeader;
+pub const addInclude = compilation.addInclude;
+pub const addSource = compilation.addSource;
 
 const command = @import ("build/command.zig");
 pub const write = command.write;
@@ -12,11 +12,11 @@ pub const copy = command.copy;
 pub const run = command.run;
 pub const clean = command.clean;
 
-const deps = @import ("build/deps.zig");
-pub const version = deps.version;
-pub const isSubmodule = deps.isSubmodule;
-pub const Repository = deps.Repository;
-pub const Dependencies = deps.Dependencies;
+const dependencies = @import ("build/dependencies.zig");
+pub const version = dependencies.version;
+pub const isSubmodule = dependencies.isSubmodule;
+pub const Repository = dependencies.Repository;
+pub const Dependencies = dependencies.Dependencies;
 
 const @"test" = @import ("build/test.zig");
 pub const isCSource = @"test".isCSource;
