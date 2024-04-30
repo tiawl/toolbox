@@ -1,6 +1,6 @@
 # Toolbox
 
-A Zig package to gather functions used into [tiawl/spaceporn](https://github.com/tiawl/spaceporn) dependencies.
+A @ziglang package to gather functions used into [tiawl/spaceporn](https://github.com/tiawl/spaceporn) dependencies.
 
 ## Disclaimer
 
