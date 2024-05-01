@@ -55,7 +55,7 @@ pub const Repository = struct
   fn getUrl (self: @This ()) [] const u8 { return self.__url; }
   fn getLatest (self: @This ()) [] const u8 { return self.__latest; }
 
-  // mandatory new function
+  // mandatory init function
   fn new (builder: *std.Build, name: [] const u8, url: [] const u8, latest: ?[] const u8) @This ()
   {
     var self = @This () {
@@ -139,7 +139,9 @@ pub const Dependencies = struct
   pub fn getInterns (self: @This ()) std.StringHashMap (Repository).KeyIterator { return self.__intern.keyIterator (); }
   pub fn getExterns (self: @This ()) std.StringHashMap (Repository).KeyIterator { return self.__extern.keyIterator (); }
 
-  pub fn init (builder: *std.Build, name: [] const u8, intern_proto: anytype,
+  // mandatory init function
+  pub fn init (builder: *std.Build, name: [] const u8,
+    paths: [] const [] const u8, intern_proto: anytype,
     extern_proto: anytype) !@This ()
   {
     var self = @This () {
@@ -167,7 +169,7 @@ pub const Dependencies = struct
     if (fetch)
     {
       try self.fetchExtern (builder);
-      try self.fetchIntern (builder, name);
+      try self.fetchIntern (builder, name, paths);
       try fetchSubmodules (builder);
       std.process.exit (0);
     }
@@ -200,7 +202,7 @@ pub const Dependencies = struct
   }
 
   fn fetchIntern (self: @This (), builder: *std.Build,
-    name: [] const u8) !void
+    name: [] const u8, additional_paths: [] const [] const u8) !void
   {
     var buffer = std.ArrayList (u8).init (builder.allocator);
     const writer = buffer.writer ();
@@ -219,39 +221,30 @@ pub const Dependencies = struct
       .{ .iterate = true, });
     defer build_dir.close ();
 
-    {
-      var it = build_dir.iterate ();
-      while (try it.next ()) |*entry|
-      {
-        if (!std.mem.startsWith (u8, entry.name, ".") and
-          !std.mem.eql (u8, entry.name, "zig-cache") and
-          !std.mem.eql (u8, entry.name, "zig-out") and
-          !try isSubmodule (builder, entry.name))
-            try writer.print ("\"{s}\",\n", .{ entry.name, });
-      }
-    }
+    try writer.print ("\"build.zig\",\n\"build.zig.zon\",\n", .{});
+
+    for (additional_paths) |path|
+      try writer.print ("\"{s}\",\n", .{ path, });
 
     try writer.print ("{c},\n.dependencies = .{c}\n", .{ '}', '{', });
 
+    var it = self.getInterns ();
+    while (it.next ()) |key|
     {
-      var it = self.getInterns ();
-      while (it.next ()) |key|
-      {
-        const url = try std.fmt.allocPrint (builder.allocator,
-          "{s}/archive/refs/tags/{s}.tar.gz",
-          .{ self.getIntern (key.*).getUrl (),
-             self.getIntern (key.*).getLatest (), });
-        var hash: [] u8 = undefined;
-        try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
-          .stdout = &hash, });
-        try writer.print (
-          \\.{s} = .{c}
-          \\  .url = "{s}",
-          \\  .hash = "{s}",
-          \\{c},
-          \\
-        , .{ key.*, '{', url, hash, '}', });
-      }
+      const url = try std.fmt.allocPrint (builder.allocator,
+        "{s}/archive/refs/tags/{s}.tar.gz",
+        .{ self.getIntern (key.*).getUrl (),
+           self.getIntern (key.*).getLatest (), });
+      var hash: [] u8 = undefined;
+      try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
+        .stdout = &hash, });
+      try writer.print (
+        \\.{s} = .{c}
+        \\  .url = "{s}",
+        \\  .hash = "{s}",
+        \\{c},
+        \\
+      , .{ key.*, '{', url, hash, '}', });
     }
 
     try writer.print ("{c},\n{c}\n", .{ '}', '}', });
