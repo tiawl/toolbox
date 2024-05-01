@@ -2,10 +2,10 @@ const std = @import ("std");
 const builtin = @import ("builtin");
 
 const command = @import ("command.zig");
-pub const run = command.run;
+const run = command.run;
 
 const @"test" = @import ("test.zig");
-pub const exists = @"test".exists;
+const exists = @"test".exists;
 
 pub fn version (builder: *std.Build, repo: [] const u8) ![] const u8
 {
@@ -43,7 +43,7 @@ fn fetchSubmodules (builder: *std.Build) !void
 
 pub const Repository = struct
 {
-  pub const API = enum { github, gitlab, };
+  pub const Host = enum { github, gitlab, };
 
   // prefixed attributes
   __name: [] const u8,
@@ -66,9 +66,9 @@ pub const Repository = struct
     return self;
   }
 
-  fn init (builder: *std.Build, name: [] const u8, api: API) !@This ()
+  fn init (builder: *std.Build, name: [] const u8, host: Host) !@This ()
   {
-    return new (builder, name, switch (api)
+    return new (builder, name, switch (host)
     {
       .github => try Github.url (builder, name),
       .gitlab => try Gitlab.url (builder, name),
@@ -158,7 +158,7 @@ pub const Dependencies = struct
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
         repository = try Repository.init (builder,
-          @field (proto, field.name).name, @field (proto, field.name).api);
+          @field (proto, field.name).name, @field (proto, field.name).host);
         if (fetch) repository = try repository.searchLatest (builder);
         try @field (self, attr).put (field.name, repository);
       }

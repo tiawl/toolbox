@@ -3,9 +3,9 @@ name: cd pong
 on:
   repository_dispatch:
     types:
-      - ping-spaceporn-dep-action-ci
-      - ping-spaceporn-dep-action-cd-ping
-      - ping-spaceporn-dep-action-cd-pong
+      - ping-spaceporn-action-ci
+      - ping-spaceporn-action-cd-ping
+      - ping-spaceporn-action-cd-pong
 
 jobs:
   pong:
@@ -14,7 +14,7 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-    - uses: tiawl/spaceporn-dep-action-cd-pong@v1.0.0
+    - uses: tiawl/spaceporn-action-cd-pong@v1.0.0
       with:
         repository: "${{ github.repository }}"
         dependency: "${{ github.event.client_payload.dependency }}"
