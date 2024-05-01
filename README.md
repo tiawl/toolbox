@@ -1,10 +1,10 @@
 # Toolbox
 
-A [Zig][2] package to gather functions used into [tiawl/spaceporn][1] dependencies.
+A toolbox to package C libraries for [Zig][2]
 
 ## Disclaimer
 
-This package is not intented to be used outside of the [tiawl/spaceporn][1] dependencies chain. For this reason, there are no contributing file/rules on this repository. However feel free to open an issue if you have a question. We will be happy to answer.
+Currently this package is not intented to be used outside of the [tiawl/spaceporn][1] dependencies chain. But it could. If you are using it for your own needs, expect breaking (but also documented) changes for each release.
 
 ## CICD reminder
 
