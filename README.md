@@ -4,7 +4,7 @@ A @ziglang package to gather functions used into [tiawl/spaceporn](https://githu
 
 ## Disclaimer
 
-This package is not intented to be used outside of the [tiawl/spaceporn](https://github.com/tiawl/spaceporn) dependencies chain. For this reasion, there are no contributing file/rules on this repository. However feel free to open an issue if you have a question. We will be happy to answer.
+This package is not intented to be used outside of the [tiawl/spaceporn](https://github.com/tiawl/spaceporn) dependencies chain. For this reason, there are no contributing file/rules on this repository. However feel free to open an issue if you have a question. We will be happy to answer.
 
 ## CICD reminder
 
