@@ -19,9 +19,9 @@ These repositories are automatically updated when a new release is available:
 * [tiawl/shaderc.zig](https://github.com/tiawl/shaderc.zig)
 
 This repository is automatically updated when a new release is available from these repositories:
-* [tiawl/spaceporn-dep-action-ci](https://github.com/tiawl/spaceporn-dep-action-ci)
-* [tiawl/spaceporn-dep-action-cd-ping](https://github.com/tiawl/spaceporn-dep-action-cd-ping)
-* [tiawl/spaceporn-dep-action-cd-pong](https://github.com/tiawl/spaceporn-dep-action-cd-pong)
+* [tiawl/spaceporn-action-ci](https://github.com/tiawl/spaceporn-action-ci)
+* [tiawl/spaceporn-action-cd-ping](https://github.com/tiawl/spaceporn-action-cd-ping)
+* [tiawl/spaceporn-action-cd-pong](https://github.com/tiawl/spaceporn-action-cd-pong)
 
 ## Documentation
 
