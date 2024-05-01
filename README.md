@@ -18,6 +18,11 @@ These repositories are automatically updated when a new release is available:
 * [tiawl/glslang.zig](https://github.com/tiawl/glslang.zig)
 * [tiawl/shaderc.zig](https://github.com/tiawl/shaderc.zig)
 
+This repository is automatically updated when a new release is available from these repositories:
+* [tiawl/spaceporn-dep-action-ci](https://github.com/tiawl/spaceporn-dep-action-ci)
+* [tiawl/spaceporn-dep-action-cd-ping](https://github.com/tiawl/spaceporn-dep-action-cd-ping)
+* [tiawl/spaceporn-dep-action-cd-pong](https://github.com/tiawl/spaceporn-dep-action-cd-pong)
+
 ## Documentation
 
 Available [here](https://github.com/tiawl/toolbox/blob/trunk/DOC.md)
