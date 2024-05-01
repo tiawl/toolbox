@@ -1,6 +1,6 @@
 # Documentation
 
-**This documentation describes the 1.9.5 release of this repository.**
+**This documentation describes the 1.9.5 release**
 
 The package is divided into 4 submodules:
 * `build/command.zig` gathers files or processes manipulation utilities used during the updating step,
