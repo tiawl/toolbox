@@ -20,7 +20,7 @@ jobs:
           - shaderc
     runs-on: ubuntu-latest
     steps:
-    - uses: tiawl/spaceporn-action-ci@v1.0.0
+    - uses: tiawl/spaceporn-action-ci@v1.0.1
       with:
         repository: "${{ github.repository }}"
         additional_zig_opts: "${{ matrix.repo == 'cimgui' && '-Dplatform=GLFW -Drenderer=Vulkan' || '' }}"
