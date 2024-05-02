@@ -2,9 +2,13 @@
 
 A toolbox to package C libraries for [Zig][2]
 
-## Disclaimer
+## Important note
 
 Currently this package is not intented to be used outside of the [tiawl/spaceporn][1] dependencies chain. But it could. If you are using it for your own needs, expect breaking (but also documented) changes for each release.
+
+## Dependencies
+
+The [Zig][2] part of this package is relying on the latest [Zig][2] release (0.12.0) and will only be updated for the next one (so for the 0.13.0).
 
 ## CICD reminder
 
