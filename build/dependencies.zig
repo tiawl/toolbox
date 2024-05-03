@@ -132,7 +132,7 @@ pub const Dependencies = struct
   pub fn getExterns (self: @This ()) std.StringHashMap (Repository).KeyIterator { return self.__extern.keyIterator (); }
 
   // mandatory init function
-  pub fn init (builder: *std.Build, name: [] const u8,
+  pub fn init (builder: *std.Build, pkg_name: [] const u8,
     paths: [] const [] const u8, intern_proto: anytype,
     extern_proto: anytype) !@This ()
   {
@@ -152,12 +152,12 @@ pub const Dependencies = struct
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
         const name = @field (proto, field.name).name;
-        const domain = @field (proto, field.domain).domain;
         const host = @field (proto, field.name).host;
         repository = Repository.init (builder, name, switch (host)
         {
-          .github => try Github.url (builder, name),
-          .gitlab => try Gitlab.url (builder, domain, name),
+          .github => try Repository.Github.url (builder, name),
+          .gitlab => try Repository.Gitlab.url (
+            builder, @field (proto, field.name).domain, name),
         }, null);
         if (fetch) repository = try repository.searchLatest (builder);
         try @field (self, attr).put (field.name, repository);
@@ -167,7 +167,7 @@ pub const Dependencies = struct
     if (fetch)
     {
       try self.fetchExtern (builder);
-      try self.fetchIntern (builder, name, paths);
+      try self.fetchIntern (builder, pkg_name, paths);
       try fetchSubmodules (builder);
       std.process.exit (0);
     }
