@@ -1,6 +1,6 @@
 # Documentation
 
-**This documentation describes the 1.9.5 release**
+**This documentation describes the 1.9.6 release**
 
 The package is divided into 4 submodules:
 * `build/command.zig` gathers files or processes manipulation utilities used during the updating step,
@@ -60,15 +60,15 @@ The package is divided into 4 submodules:
 
 ### The `Repository.Host` enum
 
-* Gitlab or Github ? choose your disease.
+* Is this a Gitlab or Github repository ?
 
 ### The `Dependencies` struct
 
-* Depicts a whole tiawl/spaceporn dependency set of dependencies. A tiawl/spaceporn dependency has `extern` and `intern` dependencies.
+* Depicts a whole set of dependencies with `extern` and `intern` dependencies.
 
 ### The `Dependencies.clone (self: @This (), builder: *std.Build, repo: [] const u8, path: [] const u8) !void` method
 
-* Git clone the `repo` extern dependency into `path`.
+* Git clone the extern dependency `repo` into `path`.
 
 ## The `build/test.zig` submodule
 
