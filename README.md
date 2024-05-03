@@ -6,6 +6,8 @@ A [Zig][2] package to package & maintain C APIs packaged for [Zig][2]
 
 Currently this package is not intented to be used outside of the [tiawl/spaceporn][1] dependencies chain. But it could. If you are using it for your own needs, expect breaking (but also documented) changes for each release.
 
+If you want to see how to use it you can check repositories list into the **"CICD reminder"** section.
+
 ## Dependencies
 
 The [Zig][2] part of this package is relying on the latest [Zig][2] release (0.12.0) and will only be updated for the next one (so for the 0.13.0).

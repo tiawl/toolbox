@@ -56,7 +56,7 @@ pub const Repository = struct
   fn getLatest (self: @This ()) [] const u8 { return self.__latest; }
 
   // mandatory init function
-  fn new (builder: *std.Build, name: [] const u8, url: [] const u8, latest: ?[] const u8) @This ()
+  fn init (builder: *std.Build, name: [] const u8, url: [] const u8, latest: ?[] const u8) @This ()
   {
     var self = @This () {
       .__name = builder.dupe (name),
@@ -66,20 +66,11 @@ pub const Repository = struct
     return self;
   }
 
-  fn init (builder: *std.Build, name: [] const u8, host: Host) !@This ()
-  {
-    return new (builder, name, switch (host)
-    {
-      .github => try Github.url (builder, name),
-      .gitlab => try Gitlab.url (builder, name),
-    }, null);
-  }
-
   // immutable setters
   fn setLatest (self: @This (), builder: *std.Build,
     latest: [] const u8) @This ()
   {
-    return new (builder, self.getName (), self.getUrl (), latest);
+    return init (builder, self.getName (), self.getUrl (), latest);
   }
 
   fn valid (tag: [] const u8) bool
@@ -119,10 +110,11 @@ pub const Repository = struct
 
   const Gitlab = struct
   {
-    fn url (builder: *std.Build, name: [] const u8) ![] const u8
+    fn url (builder: *std.Build, domain: [] const u8,
+      name: [] const u8) ![] const u8
     {
       return try std.fmt.allocPrint (builder.allocator,
-        "https://gitlab.freedesktop.org/{s}", .{ name, });
+        "https://gitlab.{s}/{s}", .{ domain, name, });
     }
   };
 };
@@ -159,8 +151,14 @@ pub const Dependencies = struct
     {
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
-        repository = try Repository.init (builder,
-          @field (proto, field.name).name, @field (proto, field.name).host);
+        const name = @field (proto, field.name).name;
+        const domain = @field (proto, field.domain).domain;
+        const host = @field (proto, field.name).host;
+        repository = Repository.init (builder, name, switch (host)
+        {
+          .github => try Github.url (builder, name),
+          .gitlab => try Gitlab.url (builder, domain, name),
+        }, null);
         if (fetch) repository = try repository.searchLatest (builder);
         try @field (self, attr).put (field.name, repository);
       }
