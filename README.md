@@ -1,6 +1,6 @@
 # Toolbox
 
-A toolbox to package C libraries for [Zig][2]
+A [Zig][2] package to package & maintain C APIs packaged for [Zig][2]
 
 ## Important note
 
