@@ -6,7 +6,7 @@ A [Zig][2] package to package & maintain C APIs packaged for [Zig][2]
 
 Currently this package is not intented to be used outside of the [tiawl/spaceporn][1] dependencies chain. But it could. If you are using it for your own needs, expect breaking (but also documented) changes for each release.
 
-If you want to see how to use it you can check repositories list into the **"CICD reminder"** section.
+If you want to see how to use it you can check repositories list into the [CICD reminder section](https://github.com/tiawl/toolbox/tree/trunk#cicd-reminder).
 
 ## Dependencies
 
@@ -31,7 +31,7 @@ This repository is automatically updated when a new release is available from th
 
 ## Documentation
 
-Available [here](https://github.com/tiawl/toolbox/blob/trunk/DOC.md)
+A minimal documentation is vailable [here](https://github.com/tiawl/toolbox/blob/trunk/DOC.md)
 
 [1]:https://github.com/tiawl/spaceporn
 [2]:https://github.com/ziglang/zig
