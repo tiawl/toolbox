@@ -56,7 +56,7 @@ pub const Repository = struct
   fn getLatest (self: @This ()) [] const u8 { return self.__latest; }
 
   // mandatory init function
-  fn new (builder: *std.Build, name: [] const u8, url: [] const u8, latest: ?[] const u8) @This ()
+  fn init (builder: *std.Build, name: [] const u8, url: [] const u8, latest: ?[] const u8) @This ()
   {
     var self = @This () {
       .__name = builder.dupe (name),
@@ -66,20 +66,11 @@ pub const Repository = struct
     return self;
   }
 
-  fn init (builder: *std.Build, name: [] const u8, host: Host) !@This ()
-  {
-    return new (builder, name, switch (host)
-    {
-      .github => try Github.url (builder, name),
-      .gitlab => try Gitlab.url (builder, name),
-    }, null);
-  }
-
   // immutable setters
   fn setLatest (self: @This (), builder: *std.Build,
     latest: [] const u8) @This ()
   {
-    return new (builder, self.getName (), self.getUrl (), latest);
+    return init (builder, self.getName (), self.getUrl (), latest);
   }
 
   fn valid (tag: [] const u8) bool
@@ -119,10 +110,11 @@ pub const Repository = struct
 
   const Gitlab = struct
   {
-    fn url (builder: *std.Build, name: [] const u8) ![] const u8
+    fn url (builder: *std.Build, domain: [] const u8,
+      name: [] const u8) ![] const u8
     {
       return try std.fmt.allocPrint (builder.allocator,
-        "https://gitlab.freedesktop.org/{s}", .{ name, });
+        "https://gitlab.{s}/{s}", .{ domain, name, });
     }
   };
 };
@@ -140,7 +132,7 @@ pub const Dependencies = struct
   pub fn getExterns (self: @This ()) std.StringHashMap (Repository).KeyIterator { return self.__extern.keyIterator (); }
 
   // mandatory init function
-  pub fn init (builder: *std.Build, name: [] const u8,
+  pub fn init (builder: *std.Build, pkg_name: [] const u8,
     paths: [] const [] const u8, intern_proto: anytype,
     extern_proto: anytype) !@This ()
   {
@@ -159,8 +151,14 @@ pub const Dependencies = struct
     {
       inline for (@typeInfo (@TypeOf (proto)).Struct.fields) |field|
       {
-        repository = try Repository.init (builder,
-          @field (proto, field.name).name, @field (proto, field.name).host);
+        const name = @field (proto, field.name).name;
+        const host = @field (proto, field.name).host;
+        repository = Repository.init (builder, name, switch (host)
+        {
+          .github => try Repository.Github.url (builder, name),
+          .gitlab => try Repository.Gitlab.url (
+            builder, @field (proto, field.name).domain, name),
+        }, null);
         if (fetch) repository = try repository.searchLatest (builder);
         try @field (self, attr).put (field.name, repository);
       }
@@ -169,7 +167,7 @@ pub const Dependencies = struct
     if (fetch)
     {
       try self.fetchExtern (builder);
-      try self.fetchIntern (builder, name, paths);
+      try self.fetchIntern (builder, pkg_name, paths);
       try fetchSubmodules (builder);
       std.process.exit (0);
     }
