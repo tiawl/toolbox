@@ -179,9 +179,14 @@ pub const Dependencies = struct
   pub fn clone (self: @This (), builder: *std.Build,
     repo: [] const u8, path: [] const u8) !void
   {
-    try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
-      "--branch", try reference (builder, repo), "--depth", "1",
-      self.getExtern (repo).getUrl (), path, }, });
+    switch (self.getExtern (repo).getRef ())
+    {
+      .tag => try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
+        "--branch", try reference (builder, repo), "--depth", "1",
+        self.getExtern (repo).getUrl (), path, }, }),
+      .commit => try run (builder, .{ .argv = &[_][] const u8 { "git",
+        "clone", "--depth", "1", self.getExtern (repo).getUrl (), path, }, }),
+    }
   }
 
   fn fetchExtern (self: @This (), builder: *std.Build) !void
