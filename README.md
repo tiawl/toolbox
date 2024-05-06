@@ -31,7 +31,7 @@ This repository is automatically updated when a new release is available from th
 
 ## Documentation
 
-A minimal documentation is vailable [here](https://github.com/tiawl/toolbox/blob/trunk/DOC.md)
+A minimal documentation is available [here](https://github.com/tiawl/toolbox/blob/trunk/DOC.md)
 
 [1]:https://github.com/tiawl/spaceporn
 [2]:https://github.com/ziglang/zig
