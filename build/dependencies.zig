@@ -186,7 +186,7 @@ pub const Dependencies = struct
         self.getExtern (repo).getUrl (), path, }, }),
       .commit => {
         try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
-          "--depth", "1", self.getExtern (repo).getUrl (), path, }, });
+          self.getExtern (repo).getUrl (), path, }, });
         try run (builder, .{ .argv = &[_][] const u8 { "git", "checkout",
           try reference (builder, repo), }, .cwd = path, });
       },
