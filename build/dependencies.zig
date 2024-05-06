@@ -7,43 +7,18 @@ const run = command.run;
 const @"test" = @import ("test.zig");
 const exists = @"test".exists;
 
-pub fn version (builder: *std.Build, repo: [] const u8) ![] const u8
+pub fn reference (builder: *std.Build, repo: [] const u8) ![] const u8
 {
   const path = try builder.build_root.join (builder.allocator,
-    &.{ ".versions", repo, });
+    &.{ ".references", repo, });
   return std.mem.trim (u8, try builder.build_root.handle.readFileAlloc (
     builder.allocator, path, std.math.maxInt (usize)), " \n");
-}
-
-pub fn isSubmodule (builder: *std.Build, name: [] const u8) !bool
-{
-  var submodules: [] u8 = undefined;
-  try run (builder, .{ .argv = &[_][] const u8 { "git", "config", "--file",
-    ".gitmodules", "--get-regexp", "path", }, .stdout = &submodules,
-      .ignore_errors = true, .cwd = builder.build_root.path.?, });
-  var it = std.mem.tokenizeAny (u8, submodules, " \n");
-  var flag = false;
-  while (it.next ()) |token|
-  {
-    if (flag and std.mem.eql (u8, name, token)) return true;
-    flag = !flag;
-  }
-  return false;
-}
-
-fn fetchSubmodules (builder: *std.Build) !void
-{
-  if (!exists (try builder.build_root.join (builder.allocator,
-    &.{ ".gitmodules", }))) return;
-
-  try run (builder, .{ .argv = &[_][] const u8 { "git", "submodule",
-    "update", "--remote", "--merge", },
-      .cwd = builder.build_root.path.?, });
 }
 
 pub const Repository = struct
 {
   pub const Host = enum { github, gitlab, };
+  pub const Reference = enum { tag, commit, };
 
   // prefixed attributes
   __name: [] const u8,
@@ -56,7 +31,8 @@ pub const Repository = struct
   fn getLatest (self: @This ()) [] const u8 { return self.__latest; }
 
   // mandatory init function
-  fn init (builder: *std.Build, name: [] const u8, url: [] const u8, latest: ?[] const u8) @This ()
+  fn init (builder: *std.Build, name: [] const u8, url: [] const u8,
+    latest: ?[] const u8) @This ()
   {
     var self = @This () {
       .__name = builder.dupe (name),
@@ -79,7 +55,8 @@ pub const Repository = struct
       (std.mem.indexOfScalar (u8, tag, '.') != null);
   }
 
-  fn searchLatest (self: @This (), builder: *std.Build) !@This ()
+  fn searchLatest (self: @This (), builder: *std.Build,
+    ref: Reference) !@This ()
   {
     var tmp_dir = std.testing.tmpDir (.{});
     const tmp = try tmp_dir.dir.realpathAlloc (builder.allocator, ".");
@@ -87,6 +64,27 @@ pub const Repository = struct
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone", "--bare",
       "--filter=blob:none", self.getUrl (), tmp, }, });
 
+    return switch (ref)
+    {
+      .commit => self.searchLatestCommit (builder, tmp),
+      .tag => self.searchLatestTag (builder, tmp),
+    };
+  }
+
+  fn searchLatestCommit (self: @This (), builder: *std.Build,
+    tmp: [] const u8) !@This ()
+  {
+    var commit: [] const u8 = undefined;
+
+    try run (builder, .{ .argv = &[_][] const u8 { "git", "log",
+      "-n1", "--pretty='format:%h'", }, .cwd = tmp, .stdout = &commit, });
+
+    return self.setLatest (builder, commit);
+  }
+
+  fn searchLatestTag (self: @This (), builder: *std.Build,
+    tmp: [] const u8) !@This ()
+  {
     var commit: [] const u8 = undefined;
     var tag: [] u8 = undefined;
     for (0 .. std.math.maxInt (usize)) |i|
@@ -142,7 +140,7 @@ pub const Dependencies = struct
     };
 
     const fetch = builder.option (bool, "fetch",
-      "Update .versions folder and build.zig.zon then stop execution")
+      "Update .references folder and build.zig.zon then stop execution")
         orelse false;
 
     var repository: Repository = undefined;
@@ -159,7 +157,8 @@ pub const Dependencies = struct
           .gitlab => try Repository.Gitlab.url (
             builder, @field (proto, field.name).domain, name),
         }, null);
-        if (fetch) repository = try repository.searchLatest (builder);
+        if (fetch) repository = try repository.searchLatest (builder,
+          @field (proto, field.name).ref);
         try @field (self, attr).put (field.name, repository);
       }
     }
@@ -168,7 +167,6 @@ pub const Dependencies = struct
     {
       try self.fetchExtern (builder);
       try self.fetchIntern (builder, pkg_name, paths);
-      try fetchSubmodules (builder);
       std.process.exit (0);
     }
 
@@ -179,21 +177,21 @@ pub const Dependencies = struct
     repo: [] const u8, path: [] const u8) !void
   {
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone",
-      "--branch", try version (builder, repo), "--depth", "1",
+      "--branch", try reference (builder, repo), "--depth", "1",
       self.getExtern (repo).getUrl (), path, }, });
   }
 
   fn fetchExtern (self: @This (), builder: *std.Build) !void
   {
-    var versions_dir =
-      try builder.build_root.handle.openDir (".versions", .{});
-    defer versions_dir.close ();
+    var references_dir =
+      try builder.build_root.handle.openDir (".references", .{});
+    defer references_dir.close ();
 
     var it = self.getExterns ();
     while (it.next ()) |key|
     {
-      try versions_dir.deleteFile (key.*);
-      try versions_dir.writeFile (key.*,
+      try references_dir.deleteFile (key.*);
+      try references_dir.writeFile (key.*,
         try std.fmt.allocPrint (builder.allocator, "{s}\n",
           .{ self.getExtern (key.*).getLatest (), }));
     }
