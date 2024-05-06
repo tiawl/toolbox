@@ -30,7 +30,7 @@ pub const Repository = struct
   fn getName (self: @This ()) [] const u8 { return self.__name; }
   fn getUrl (self: @This ()) [] const u8 { return self.__url; }
   fn getLatest (self: @This ()) [] const u8 { return self.__latest; }
-  fn getRef (self: @This ()) Refernce { return self.__ref; }
+  fn getRef (self: @This ()) Reference { return self.__ref; }
 
   // mandatory init function
   fn init (builder: *std.Build, name: [] const u8, url: [] const u8,
