@@ -79,8 +79,8 @@ pub const Repository = struct
   {
     var commit: [] const u8 = undefined;
 
-    try run (builder, .{ .argv = &[_][] const u8 { "git", "log",
-      "-n", "1", "--pretty", "'format:%h'", }, .cwd = tmp, .stdout = &commit, });
+    try run (builder, .{ .argv = &[_][] const u8 { "git", "rev-parse",
+      "--short", "HEAD", }, .cwd = tmp, .stdout = &commit, });
 
     return self.setLatest (builder, commit);
   }
