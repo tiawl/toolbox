@@ -24,19 +24,22 @@ pub const Repository = struct
   __name: [] const u8,
   __url: [] const u8,
   __latest: [] const u8 = undefined,
+  __ref: Reference = undefined,
 
   // mandatory getters function
   fn getName (self: @This ()) [] const u8 { return self.__name; }
   fn getUrl (self: @This ()) [] const u8 { return self.__url; }
   fn getLatest (self: @This ()) [] const u8 { return self.__latest; }
+  fn getRef (self: @This ()) [] const u8 { return self.__ref; }
 
   // mandatory init function
   fn init (builder: *std.Build, name: [] const u8, url: [] const u8,
-    latest: ?[] const u8) @This ()
+    latest: ?[] const u8, ref: Reference) @This ()
   {
     var self = @This () {
       .__name = builder.dupe (name),
       .__url = builder.dupe (url),
+      .__ref = ref,
     };
     if (latest) |tag| self.__latest = builder.dupe (tag);
     return self;
@@ -46,7 +49,8 @@ pub const Repository = struct
   fn setLatest (self: @This (), builder: *std.Build,
     latest: [] const u8) @This ()
   {
-    return init (builder, self.getName (), self.getUrl (), latest);
+    return init (builder, self.getName (), self.getUrl (), latest,
+      self.getRef ());
   }
 
   fn valid (tag: [] const u8) bool
@@ -55,8 +59,7 @@ pub const Repository = struct
       (std.mem.indexOfScalar (u8, tag, '.') != null);
   }
 
-  fn searchLatest (self: @This (), builder: *std.Build,
-    ref: Reference) !@This ()
+  fn searchLatest (self: @This (), builder: *std.Build) !@This ()
   {
     var tmp_dir = std.testing.tmpDir (.{});
     const tmp = try tmp_dir.dir.realpathAlloc (builder.allocator, ".");
@@ -64,7 +67,7 @@ pub const Repository = struct
     try run (builder, .{ .argv = &[_][] const u8 { "git", "clone", "--bare",
       "--filter=blob:none", self.getUrl (), tmp, }, });
 
-    return switch (ref)
+    return switch (self.getRef ())
     {
       .commit => self.searchLatestCommit (builder, tmp),
       .tag => self.searchLatestTag (builder, tmp),
@@ -151,14 +154,14 @@ pub const Dependencies = struct
       {
         const name = @field (proto, field.name).name;
         const host = @field (proto, field.name).host;
+        const ref = @field (proto, field.name).ref;
         repository = Repository.init (builder, name, switch (host)
         {
           .github => try Repository.Github.url (builder, name),
           .gitlab => try Repository.Gitlab.url (
             builder, @field (proto, field.name).domain, name),
-        }, null);
-        if (fetch) repository = try repository.searchLatest (builder,
-          @field (proto, field.name).ref);
+        }, null, ref);
+        if (fetch) repository = try repository.searchLatest (builder);
         try @field (self, attr).put (field.name, repository);
       }
     }
