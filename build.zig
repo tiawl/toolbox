@@ -13,8 +13,7 @@ pub const run = command.run;
 pub const clean = command.clean;
 
 const dependencies = @import ("build/dependencies.zig");
-pub const version = dependencies.version;
-pub const isSubmodule = dependencies.isSubmodule;
+pub const reference = dependencies.reference;
 pub const Repository = dependencies.Repository;
 pub const Dependencies = dependencies.Dependencies;
 
