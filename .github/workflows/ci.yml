@@ -29,7 +29,7 @@ jobs:
       with:
         repository: "${{ github.repository }}"
         additional_zig_opts: "${{ matrix.repo == 'cimgui' && '-Dplatform=GLFW -Drenderer=Vulkan' || '' }}"
-        sha: "${{ step.sha.output.head }}"
+        sha: "${{ steps.sha.output.head }}"
         user: "${{ matrix.repo }}.zig"
         token: "${{ github.token }}"
         test_build: 'false'
