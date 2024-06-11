@@ -11,7 +11,7 @@ pub fn addHeader (lib: *std.Build.Step.Compile, source: [] const u8,
 pub fn addInclude (lib: *std.Build.Step.Compile, path: [] const u8) void
 {
   const builder = lib.step.owner;
-  const lazy = std.Build.LazyPath { .cwd_relative = builder.dupe (path), };
+  const lazy = builder.path (path);
   std.debug.print ("[{s} include] {s}\n",
     .{ lib.name, lazy.getPath (builder), });
   lib.addIncludePath (lazy);
