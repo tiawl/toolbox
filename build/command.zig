@@ -38,7 +38,7 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
   std.debug.print ("\x1b[35m[{s}]\x1b[0m\n",
     .{ try std.mem.join (builder.allocator, " ", proc.argv), });
 
-  var child = std.ChildProcess.init (proc.argv, builder.allocator);
+  var child = std.process.Child.init (proc.argv, builder.allocator);
 
   child.stdin_behavior = .Ignore;
   child.stdout_behavior = .Pipe;
@@ -48,7 +48,7 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
 
   try child.spawn ();
 
-  var term: std.ChildProcess.Term = undefined;
+  var term: std.process.Child.Term = undefined;
   if (proc.wait) |wait|
   {
     wait ();
@@ -57,7 +57,7 @@ pub fn run (builder: *std.Build, proc: struct { argv: [] const [] const u8,
     try child.collectOutput (&stdout, &stderr, std.math.maxInt (usize));
     term = try child.wait ();
   }
-  const exit_success = std.ChildProcess.Term { .Exited = 0, };
+  const exit_success = std.process.Child.Term { .Exited = 0, };
   if (!proc.ignore_errors and stderr.items.len > 0 and
     !std.meta.eql (term, exit_success))
       std.debug.print ("\x1b[31m{s}\x1b[0m", .{ stderr.items, });
