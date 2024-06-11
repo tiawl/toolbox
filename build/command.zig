@@ -10,7 +10,7 @@ pub fn write (path: [] const u8, name: [] const u8,
   std.debug.print ("[write {s}/{s}]\n", .{ path, name, });
   var dir = try std.fs.openDirAbsolute (path, .{});
   defer dir.close ();
-  try dir.writeFile (name, content);
+  try dir.writeFile (.{ .sub_path = name, .data = content, });
 }
 
 pub fn make (path: [] const u8) !void
