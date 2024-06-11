@@ -203,9 +203,11 @@ pub const Dependencies = struct
     while (it.next ()) |key|
     {
       try references_dir.deleteFile (key.*);
-      try references_dir.writeFile (key.*,
-        try std.fmt.allocPrint (builder.allocator, "{s}\n",
-          .{ self.getExtern (key.*).getLatest (), }));
+      try references_dir.writeFile (.{
+        .sub_path = key.*,
+        .data = try std.fmt.allocPrint (builder.allocator, "{s}\n",
+          .{ self.getExtern (key.*).getLatest (), }),
+      });
     }
   }
 
@@ -264,6 +266,6 @@ pub const Dependencies = struct
     const formatted = try validated.render (builder.allocator);
 
     try builder.build_root.handle.deleteFile ("build.zig.zon");
-    try builder.build_root.handle.writeFile ("build.zig.zon", formatted);
+    try builder.build_root.handle.writeFile (.{ .sub_path = "build.zig.zon", .data = formatted, });
   }
 };
