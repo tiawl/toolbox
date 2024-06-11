@@ -21,12 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
     - id: sha
       shell: bash
       run: |
-        printf 'head=%s\n' "$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+        printf 'head=%s\n' "$(git log -1 --format='%H')" >> "${GITHUB_OUTPUT}"
     - uses: tiawl/spaceporn-action-ci@43df9f0e7253ba1ada2ff1882a5ac636be43d4eb
       with:
         repository: "${{ github.repository }}"
