@@ -20,11 +20,16 @@ jobs:
           - shaderc
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@v4
+    - id: sha
+      shell: bash
+      run: |
+        printf 'head=%s\n' "$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
     - uses: tiawl/spaceporn-action-ci@43df9f0e7253ba1ada2ff1882a5ac636be43d4eb
       with:
         repository: "${{ github.repository }}"
         additional_zig_opts: "${{ matrix.repo == 'cimgui' && '-Dplatform=GLFW -Drenderer=Vulkan' || '' }}"
-        sha: "${{ github.sha }}"
+        sha: "${{ step.sha.output.head }}"
         user: "${{ matrix.repo }}.zig"
         token: "${{ github.token }}"
         test_build: 'false'
