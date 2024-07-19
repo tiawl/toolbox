@@ -33,7 +33,7 @@ pub fn build (builder: *std.Build) !void
 
   const clean_step = builder.step ("clean", "Clean up");
 
-  clean_step.dependOn (&builder.addRemoveDirTree (builder.install_path).step);
+  clean_step.dependOn (&builder.addRemoveDirTree (.{.cwd_relative = builder.install_path}).step);
   if (@import ("builtin").os.tag != .windows)
   {
     clean_step.dependOn (&builder.addRemoveDirTree (
