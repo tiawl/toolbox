@@ -31,11 +31,12 @@ pub fn build (builder: *std.Build) !void
   _ = builder.addModule ("toolbox",
     .{ .root_source_file = builder.addWriteFiles ().add ("empty.zig", ""), });
 
-  const clean_step = builder.step ("clean", "Clean up");
-
-  clean_step.dependOn (&builder.addRemoveDirTree (builder.install_path).step);
   if (@import ("builtin").os.tag != .windows)
   {
+    const clean_step = builder.step ("clean", "Clean up");
+
+    clean_step.dependOn (&builder.addRemoveDirTree (builder.install_path).step);
+
     clean_step.dependOn (&builder.addRemoveDirTree (
       builder.pathFromRoot ("zig-cache")).step);
   }
