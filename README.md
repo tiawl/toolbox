@@ -33,6 +33,10 @@ This repository is automatically updated when a new release is available from th
 
 A minimal documentation is available [here](https://github.com/tiawl/toolbox/blob/trunk/DOC.md)
 
+## License
+
+This repository is dedicated to the public domain. See the LICENSE file for more details.
+
 [1]:https://github.com/tiawl/spaceporn
 [2]:https://github.com/ziglang/zig
 [3]:https://github.com/tiawl/vulkan.zig
