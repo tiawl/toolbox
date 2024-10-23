@@ -20,6 +20,7 @@ jobs:
           - spirv
           - glslang
           - shaderc
+          - libjq
     runs-on: ubuntu-latest
     steps:
     - uses: tiawl/spaceporn-action-cd-ping@v1.1.0
