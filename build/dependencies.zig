@@ -18,7 +18,20 @@ pub fn reference (builder: *std.Build, repo: [] const u8) ![] const u8
 pub const Repository = struct
 {
   pub const Host = enum { github, gitlab, };
-  pub const Reference = enum { tag, commit, };
+  pub const Reference = enum
+  {
+    tag,
+    commit,
+
+    fn toUrl (self: @This ()) [] const u8
+    {
+      return switch (self)
+      {
+        .tag => "archive/refs/tags",
+        .commit => "archive",
+      };
+    }
+  };
 
   // prefixed attributes
   __name: [] const u8,
@@ -59,6 +72,15 @@ pub const Repository = struct
       (std.mem.indexOfScalar (u8, tag, '.') != null);
   }
 
+  fn getShortLatest (self: @This ()) [] const u8
+  {
+    return switch (self.getRef ())
+    {
+      .tag => self.getLatest (),
+      .commit => self.getLatest () [0 .. 7],
+    };
+  }
+
   fn searchLatest (self: @This (), builder: *std.Build) !@This ()
   {
     var tmp_dir = std.testing.tmpDir (.{});
@@ -80,7 +102,7 @@ pub const Repository = struct
     var commit: [] const u8 = undefined;
 
     try run (builder, .{ .argv = &[_][] const u8 { "git", "rev-parse",
-      "--short", "HEAD", }, .cwd = tmp, .stdout = &commit, });
+      "HEAD", }, .cwd = tmp, .stdout = &commit, });
 
     return self.setLatest (builder, commit);
   }
@@ -206,7 +228,7 @@ pub const Dependencies = struct
       try references_dir.writeFile (.{
         .sub_path = key.*,
         .data = try std.fmt.allocPrint (builder.allocator, "{s}\n",
-          .{ self.getExtern (key.*).getLatest (), }),
+          .{ self.getExtern (key.*).getShortLatest (), }),
       });
     }
   }
@@ -242,8 +264,9 @@ pub const Dependencies = struct
     while (it.next ()) |key|
     {
       const url = try std.fmt.allocPrint (builder.allocator,
-        "{s}/archive/refs/tags/{s}.tar.gz",
+        "{s}/{s}/{s}.tar.gz",
         .{ self.getIntern (key.*).getUrl (),
+           self.getIntern (key.*).getRef ().toUrl (),
            self.getIntern (key.*).getLatest (), });
       var hash: [] u8 = undefined;
       try run (builder, .{ .argv = &[_][] const u8 { "zig", "fetch", url, },
