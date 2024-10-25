@@ -1,6 +1,6 @@
 # Toolbox
 
-A [Zig][2] package to package & maintain C APIs packaged for [Zig][2]
+A toolkit to package & maintain C APIs for [Zig][2]
 
 ## Important note
 
