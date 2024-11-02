@@ -23,6 +23,7 @@ These repositories are automatically updated when a new release is available:
 * [tiawl/spirv.zig][8]
 * [tiawl/glslang.zig][9]
 * [tiawl/shaderc.zig][10]
+* [tiawl/oniguruma.zig][15]
 * [tiawl/libjq.zig][14]
 
 This repository is automatically updated when a new release is available from these repositories:
@@ -52,3 +53,4 @@ This repository is dedicated to the public domain. See the LICENSE file for more
 [12]:https://github.com/tiawl/spaceporn-action-cd-ping
 [13]:https://github.com/tiawl/spaceporn-action-cd-pong
 [14]:https://github.com/tiawl/libjq.zig
+[15]:https://github.com/tiawl/oniguruma.zig
