@@ -20,6 +20,7 @@ jobs:
           - spirv
           - glslang
           - shaderc
+          - oniguruma
           - libjq
     runs-on: ubuntu-latest
     steps:
