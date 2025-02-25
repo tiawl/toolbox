@@ -77,7 +77,7 @@ jobs:
         case "${REPO}" in
         ( 'cimgui' )
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-          zig build -Dupdate '-Dplatform=GLFW -Drenderer=Vulkan' ;;
+          zig build -Dupdate -Dplatform=GLFW -Drenderer=Vulkan ;;
         ( * ) zig build -Dupdate ;;
         esac
 
@@ -90,6 +90,6 @@ jobs:
         case "${REPO}" in
         ( 'cimgui' )
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-          zig build -Dfetch '-Dplatform=GLFW -Drenderer=Vulkan' ;;
+          zig build -Dfetch -Dplatform=GLFW -Drenderer=Vulkan ;;
         ( * ) zig build -Dfetch ;;
         esac
