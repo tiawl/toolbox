@@ -68,7 +68,7 @@ jobs:
         IS_CIMGUI: "${{ matrix.repo == 'cimgui' && 'true' || 'false' }}"
         RUNNER_TMP: "${{ runner.temp }}"
       shell: 'bash'
-      run:
+      run: |
         if [[ "${IS_CIMGUI}" == 'true' ]]
         then
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
@@ -82,7 +82,7 @@ jobs:
         IS_CIMGUI: "${{ matrix.repo == 'cimgui' && 'true' || 'false' }}"
         RUNNER_TMP: "${{ runner.temp }}"
       shell: 'bash'
-      run:
+      run: |
         if [[ "${IS_CIMGUI}" == 'true' ]]
         then
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
