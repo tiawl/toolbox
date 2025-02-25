@@ -31,10 +31,15 @@ jobs:
         version: ${{ env.ZIG_VERSION }}
 
     - name: Install packages
-      if: matrix.repo == 'cimgui'
+      env:
+        REPO: "${{ matrix.repo }}"
       shell: 'bash'
       run: |
-        sudo apt-get install -y libwayland-bin python3-venv mesa-utils
+        case "${REPO}" in
+        ( 'cimgui' ) sudo apt-get install -y python3-venv mesa-utils ;;
+        ( 'wayland' ) sudo apt-get install -y libwayland-bin ;;
+        ( * ) ;;
+        esac
         printf 'ACTIVATE_DIR=bin\n' >> "${GITHUB_ENV}"
 
     - uses: actions/checkout@v4
@@ -65,28 +70,26 @@ jobs:
 
     - name: Test updating ${{ matrix.repo }}.zig
       env:
-        IS_CIMGUI: "${{ matrix.repo == 'cimgui' && 'true' || 'false' }}"
+        REPO: "${{ matrix.repo }}"
         RUNNER_TMP: "${{ runner.temp }}"
       shell: 'bash'
       run: |
-        if [[ "${IS_CIMGUI}" == 'true' ]]
-        then
+        case "${REPO}" in
+        ( 'cimgui' )
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-          zig build -Dupdate '-Dplatform=GLFW -Drenderer=Vulkan'
-        else
-          zig build -Dupdate
-        fi
+          zig build -Dupdate '-Dplatform=GLFW -Drenderer=Vulkan' ;;
+        ( * ) zig build -Dupdate ;;
+        esac
 
     - name: Test fetching ${{ matrix.repo }}.zig
       env:
-        IS_CIMGUI: "${{ matrix.repo == 'cimgui' && 'true' || 'false' }}"
+        REPO: "${{ matrix.repo }}"
         RUNNER_TMP: "${{ runner.temp }}"
       shell: 'bash'
       run: |
-        if [[ "${IS_CIMGUI}" == 'true' ]]
-        then
+        case "${REPO}" in
+        ( 'cimgui' )
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-          zig build -Dfetch '-Dplatform=GLFW -Drenderer=Vulkan'
-        else
-          zig build -Dfetch
-        fi
+          zig build -Dfetch '-Dplatform=GLFW -Drenderer=Vulkan' ;;
+        ( * ) zig build -Dfetch ;;
+        esac
