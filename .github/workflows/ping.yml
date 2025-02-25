@@ -6,7 +6,6 @@ on:
       - '*'
 
 env:
-  SHELL: "bash"
   ZIG_VERSION: "0.13.0"
 
 jobs:
@@ -40,7 +39,7 @@ jobs:
         PAYLOAD_FROM: "client_payload[from]=${{ github.event.repository.name }}"
         PAYLOAD_TAG: "client_payload[tag]=${{ github.ref_name }}"
         URL: "${{ github.server_url }}/${{ github.repository_owner }}/${{ github.event.repository.name }}/archive/refs/tags/${{ github.ref_name }}.tar.gz"
-      shell: ${{ env.SHELL }}
+      shell: 'bash'
       run: |
         payload_hash="client_payload[hash]=$(zig fetch "${URL}")"
         gh api --method POST \

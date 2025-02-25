@@ -6,7 +6,6 @@ on:
       - trunk
 
 env:
-  SHELL: "bash"
   ZIG_VERSION: "0.13.0"
 
 jobs:
@@ -33,7 +32,7 @@ jobs:
 
     - name: Install packages
       if: matrix.repo == 'cimgui'
-      shell: ${{ env.SHELL }}
+      shell: 'bash'
       run: |
         sudo apt-get install -y libwayland-bin python3-venv mesa-utils
         printf 'ACTIVATE_DIR=bin\n' >> "${GITHUB_ENV}"
@@ -46,7 +45,7 @@ jobs:
       if: matrix.repo == 'cimgui'
       env:
         RUNNER_TMP: "${{ runner.temp }}"
-      shell: ${{ env.SHELL }}
+      shell: 'bash'
       run: |
         python3 -m venv "${RUNNER_TMP}/venv"
         source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
@@ -56,7 +55,7 @@ jobs:
       env:
         SHA: "${{ github.event.pull_request.head.sha }}"
         URL: "${{ github.server_url }}/${{ github.repository }}/archive"
-      shell: ${{ env.SHELL }}
+      shell: 'bash'
       run: |
         old_url="$(grep -o "${URL}/.*\.tar\.gz" build.zig.zon)"
         old_hash="$(zig fetch "${old_url}")"
@@ -68,7 +67,7 @@ jobs:
       env:
         IS_CIMGUI: "${{ matrix.repo == 'cimgui' && 'true' || 'false' }}"
         RUNNER_TMP: "${{ runner.temp }}"
-      shell: ${{ env.SHELL }}
+      shell: 'bash'
       run:
         if [[ "${IS_CIMGUI}" == 'true' ]]
         then
@@ -82,7 +81,7 @@ jobs:
       env:
         IS_CIMGUI: "${{ matrix.repo == 'cimgui' && 'true' || 'false' }}"
         RUNNER_TMP: "${{ runner.temp }}"
-      shell: ${{ env.SHELL }}
+      shell: 'bash'
       run:
         if [[ "${IS_CIMGUI}" == 'true' ]]
         then
