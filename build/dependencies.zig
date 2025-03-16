@@ -191,15 +191,17 @@ pub const Dependencies = struct {
             "__extern",
         }) |proto, attr| {
             inline for (@typeInfo(@TypeOf(proto)).@"struct".fields) |field| {
-                const name = @field(proto, field.name).name;
-                const module_name = name[std.mem.indexOfScalar(u8, name, '/').? + 1 ..];
-                const host = @field(proto, field.name).host;
-                const ref = @field(proto, field.name).ref;
-                repository = Repository.init(builder, name, switch (host) {
+                const proto_name = @field(proto, field.name).name;
+                const proto_host = @field(proto, field.name).host;
+                const proto_ref = @field(proto, field.name).ref;
+                const module_name = proto_name[std.mem.indexOfScalar(u8, proto_name, '/').? + 1 ..];
+                const fork = builder.option([]const u8, module_name, "Switch to the given branch from a given fork for the " ++ proto_name ++ " repository") orelse "";
+                const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0 .. i] else proto_name;
+                const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else null;
+                repository = Repository.init(builder, name, switch (proto_host) {
                     .github => try Repository.Github.url(builder, name),
                     .gitlab => try Repository.Gitlab.url(builder, @field(proto, field.name).domain, name),
-                }, null, ref);
-                const branch = builder.option([]const u8, module_name, "Switch to the given branch for the " ++ name ++ " repository");
+                }, null, proto_ref);
                 if (fetch) repository = try repository.searchLatest(builder, branch);
                 try @field(self, attr).put(field.name, repository);
             }
