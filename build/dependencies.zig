@@ -80,12 +80,15 @@ pub const Repository = struct {
         };
     }
 
-    fn searchLatest(self: @This(), builder: *std.Build) !@This() {
+    fn searchLatest(self: @This(), builder: *std.Build, branch_opt: ?[]const u8) !@This() {
         var tmp_dir = std.testing.tmpDir(.{});
         const tmp = try tmp_dir.dir.realpathAlloc(builder.allocator, ".");
 
         try run(builder, .{
-            .argv = &[_][]const u8{
+            .argv = if (branch_opt) |branch| &[_][]const u8{
+                "git",                "clone",       "--bare", "--branch", branch,
+                "--filter=blob:none", self.getUrl(), tmp,
+            } else &[_][]const u8{
                 "git",                "clone",       "--bare",
                 "--filter=blob:none", self.getUrl(), tmp,
             },
@@ -189,13 +192,15 @@ pub const Dependencies = struct {
         }) |proto, attr| {
             inline for (@typeInfo(@TypeOf(proto)).Struct.fields) |field| {
                 const name = @field(proto, field.name).name;
+                const module_name = name[std.mem.indexOfScalar(u8, name, '/').? + 1 ..];
                 const host = @field(proto, field.name).host;
                 const ref = @field(proto, field.name).ref;
                 repository = Repository.init(builder, name, switch (host) {
                     .github => try Repository.Github.url(builder, name),
                     .gitlab => try Repository.Gitlab.url(builder, @field(proto, field.name).domain, name),
                 }, null, ref);
-                if (fetch) repository = try repository.searchLatest(builder);
+                const branch = builder.option([]const u8, module_name, "Switch to the given branch for the " ++ name ++ " repository");
+                if (fetch) repository = try repository.searchLatest(builder, branch);
                 try @field(self, attr).put(field.name, repository);
             }
         }
