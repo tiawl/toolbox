@@ -38,8 +38,8 @@ pub fn run(builder: *std.Build, proc: struct {
     stdout: ?*[]const u8 = null,
     ignore_errors: bool = false,
 }) !void {
-    var stdout: std.ArrayListUnmanaged(u8) = undefined;
-    var stderr: std.ArrayListUnmanaged(u8) = undefined;
+    var stdout: std.ArrayListUnmanaged(u8) = .empty;
+    var stderr: std.ArrayListUnmanaged(u8) = .empty;
 
     std.debug.print("\x1b[35m[{s}]\x1b[0m\n", .{
         try std.mem.join(builder.allocator, " ", proc.argv),
