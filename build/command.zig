@@ -38,12 +38,8 @@ pub fn run(builder: *std.Build, proc: struct {
     stdout: ?*[]const u8 = null,
     ignore_errors: bool = false,
 }) !void {
-    var stdout = std.ArrayList(u8).init(builder.allocator);
-    var stderr = std.ArrayList(u8).init(builder.allocator);
-    errdefer {
-        stdout.deinit();
-        stderr.deinit();
-    }
+    var stdout: std.ArrayListUnmanaged(u8) = .empty;
+    var stderr: std.ArrayListUnmanaged(u8) = .empty;
 
     std.debug.print("\x1b[35m[{s}]\x1b[0m\n", .{
         try std.mem.join(builder.allocator, " ", proc.argv),
@@ -64,7 +60,7 @@ pub fn run(builder: *std.Build, proc: struct {
         wait();
         term = try child.kill();
     } else {
-        try child.collectOutput(&stdout, &stderr, std.math.maxInt(usize));
+        try child.collectOutput(builder.allocator, &stdout, &stderr, std.math.maxInt(usize));
         term = try child.wait();
     }
     const exit_success = std.process.Child.Term{
@@ -79,7 +75,7 @@ pub fn run(builder: *std.Build, proc: struct {
         try std.testing.expectEqual(term, exit_success);
 
     if (proc.stdout) |out|
-        out.* = std.mem.trim(u8, try stdout.toOwnedSlice(), " \n")
+        out.* = std.mem.trim(u8, try stdout.toOwnedSlice(builder.allocator), " \n")
     else
         std.debug.print("{s}", .{
             stdout.items,

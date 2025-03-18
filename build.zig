@@ -34,8 +34,8 @@ pub fn build(builder: *std.Build) !void {
     if (@import("builtin").os.tag != .windows) {
         const clean_step = builder.step("clean", "Clean up");
 
-        clean_step.dependOn(&builder.addRemoveDirTree(builder.install_path).step);
+        clean_step.dependOn(&builder.addRemoveDirTree(.{ .cwd_relative = builder.install_path }).step);
 
-        clean_step.dependOn(&builder.addRemoveDirTree(builder.pathFromRoot("zig-cache")).step);
+        clean_step.dependOn(&builder.addRemoveDirTree(.{.cwd_relative = builder.pathFromRoot("zig-cache") }).step);
     }
 }

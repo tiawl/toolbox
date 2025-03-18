@@ -10,7 +10,7 @@ If you want to see how to use it you can check repositories list into the [CICD 
 
 ## Dependencies
 
-The [Zig][2] part of this package is relying on the latest [Zig][2] release (0.13.0) and will only be updated for the next one (so for the 0.14.0).
+The [Zig][2] part of this package is relying on the latest [Zig][2] release (0.14.0) and will only be updated for the next one (so for the 0.15.0).
 
 ## CICD reminder
 

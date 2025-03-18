@@ -23,13 +23,6 @@ pub const Repository = struct {
     pub const Reference = enum {
         tag,
         commit,
-
-        fn toUrl(self: @This()) []const u8 {
-            return switch (self) {
-                .tag => "archive/refs/tags",
-                .commit => "archive",
-            };
-        }
     };
 
     // prefixed attributes
@@ -80,12 +73,15 @@ pub const Repository = struct {
         };
     }
 
-    fn searchLatest(self: @This(), builder: *std.Build) !@This() {
+    fn searchLatest(self: @This(), builder: *std.Build, branch_opt: ?[]const u8) !@This() {
         var tmp_dir = std.testing.tmpDir(.{});
         const tmp = try tmp_dir.dir.realpathAlloc(builder.allocator, ".");
 
         try run(builder, .{
-            .argv = &[_][]const u8{
+            .argv = if (branch_opt) |branch| &[_][]const u8{
+                "git",                "clone",       "--bare", "--branch", branch,
+                "--filter=blob:none", self.getUrl(), tmp,
+            } else &[_][]const u8{
                 "git",                "clone",       "--bare",
                 "--filter=blob:none", self.getUrl(), tmp,
             },
@@ -114,7 +110,7 @@ pub const Repository = struct {
 
     fn searchLatestTag(self: @This(), builder: *std.Build, tmp: []const u8) !@This() {
         var commit: []const u8 = undefined;
-        var tag: []u8 = undefined;
+        var tag: []const u8 = undefined;
         for (0..std.math.maxInt(usize)) |i| {
             commit = try std.fmt.allocPrint(builder.allocator, "HEAD~{}", .{
                 i,
@@ -171,7 +167,7 @@ pub const Dependencies = struct {
     }
 
     // mandatory init function
-    pub fn init(builder: *std.Build, pkg_name: []const u8, paths: []const []const u8, intern_proto: anytype, extern_proto: anytype) !@This() {
+    pub fn init(builder: *std.Build, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, intern_proto: anytype, extern_proto: anytype) !@This() {
         var self = @This(){
             .__intern = std.StringHashMap(Repository).init(builder.allocator),
             .__extern = std.StringHashMap(Repository).init(builder.allocator),
@@ -187,22 +183,26 @@ pub const Dependencies = struct {
             "__intern",
             "__extern",
         }) |proto, attr| {
-            inline for (@typeInfo(@TypeOf(proto)).Struct.fields) |field| {
-                const name = @field(proto, field.name).name;
-                const host = @field(proto, field.name).host;
-                const ref = @field(proto, field.name).ref;
-                repository = Repository.init(builder, name, switch (host) {
+            inline for (@typeInfo(@TypeOf(proto)).@"struct".fields) |field| {
+                const proto_name = @field(proto, field.name).name;
+                const proto_host = @field(proto, field.name).host;
+                const proto_ref = @field(proto, field.name).ref;
+                const module_name = proto_name[std.mem.indexOfScalar(u8, proto_name, '/').? + 1 ..];
+                const fork = builder.option([]const u8, module_name, "Switch to the given branch from a given fork for the " ++ proto_name ++ " repository") orelse "";
+                const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0 .. i] else proto_name;
+                const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else null;
+                repository = Repository.init(builder, name, switch (proto_host) {
                     .github => try Repository.Github.url(builder, name),
                     .gitlab => try Repository.Gitlab.url(builder, @field(proto, field.name).domain, name),
-                }, null, ref);
-                if (fetch) repository = try repository.searchLatest(builder);
+                }, null, proto_ref);
+                if (fetch) repository = try repository.searchLatest(builder, branch);
                 try @field(self, attr).put(field.name, repository);
             }
         }
 
         if (fetch) {
             try self.fetchExtern(builder);
-            try self.fetchIntern(builder, pkg_name, paths);
+            try self.fetchIntern(builder, pkg, fingerprint, paths);
             std.process.exit(0);
         }
 
@@ -254,20 +254,20 @@ pub const Dependencies = struct {
         }
     }
 
-    fn fetchIntern(self: @This(), builder: *std.Build, name: []const u8, additional_paths: []const []const u8) !void {
+    fn fetchIntern(self: @This(), builder: *std.Build, pkg: @Type(.enum_literal), fingerprint: []const u8, additional_paths: []const []const u8) !void {
         var buffer = std.ArrayList(u8).init(builder.allocator);
         const writer = buffer.writer();
 
         try writer.print(
             \\.{c}
-            \\  .name = "{s}",
-            \\  .version = "1.0.0",
-            \\  .minimum_zig_version = "{}.{}.0",
-            \\  .paths = .{c}
+            \\    .name = {},
+            \\    .version = "1.0.0",
+            \\    .minimum_zig_version = "{}.{}.0",
+            \\    .fingerprint = {s},
+            \\    .paths = .{c}
             \\
         , .{
-            '{',                       name, builtin.zig_version.major,
-            builtin.zig_version.minor, '{',
+            '{', pkg, builtin.zig_version.major, builtin.zig_version.minor, fingerprint, '{',
         });
 
         var build_dir = try builder.build_root.handle.openDir(".", .{
@@ -277,50 +277,14 @@ pub const Dependencies = struct {
 
         try writer.print("\"build.zig\",\n\"build.zig.zon\",\n", .{});
 
-        for (additional_paths) |path|
+        for (additional_paths) |path| {
             try writer.print("\"{s}\",\n", .{
                 path,
-            });
-
-        try writer.print("{c},\n.dependencies = .{c}\n", .{
-            '}',
-            '{',
-        });
-
-        var it = self.getInterns();
-        while (it.next()) |key| {
-            const url = try std.fmt.allocPrint(builder.allocator, "{s}/{s}/{s}.tar.gz", .{
-                self.getIntern(key.*).getUrl(),
-                self.getIntern(key.*).getRef().toUrl(),
-                self.getIntern(key.*).getLatest(),
-            });
-            var hash: []u8 = undefined;
-            try run(builder, .{
-                .argv = &[_][]const u8{
-                    "zig",
-                    "fetch",
-                    url,
-                },
-                .stdout = &hash,
-            });
-            try writer.print(
-                \\.{s} = .{c}
-                \\  .url = "{s}",
-                \\  .hash = "{s}",
-                \\{c},
-                \\
-            , .{
-                key.*,
-                '{',
-                url,
-                hash,
-                '}',
             });
         }
 
         try writer.print("{c},\n{c}\n", .{
-            '}',
-            '}',
+            '}', '}',
         });
 
         try buffer.append(0);
@@ -334,5 +298,18 @@ pub const Dependencies = struct {
             .sub_path = "build.zig.zon",
             .data = formatted,
         });
+
+        var it = self.getInterns();
+        while (it.next()) |key| {
+            const url = try std.fmt.allocPrint(builder.allocator, "git+{s}#{s}", .{
+                self.getIntern(key.*).getUrl(),
+                self.getIntern(key.*).getLatest(),
+            });
+            try run(builder, .{
+                .argv = &[_][]const u8{
+                    "zig", "fetch", "--save", url,
+                },
+            });
+        }
     }
 };
