@@ -70,7 +70,7 @@ const Toolbox = struct {
         return self.__mode;
     }
 
-    fn ptrBuilder(self: *@This()) *std.Build {
+    pub fn ptrBuilder(self: *@This()) *std.Build {
         return self.__builder;
     }
 
