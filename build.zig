@@ -91,7 +91,7 @@ const Toolbox = struct {
         });
     }
 
-    pub fn addInclude(self: @This(), lib: *std.Build.Step.Compile, path: []const u8) void {
+    pub fn addInclude(self: *@This(), lib: *std.Build.Step.Compile, path: []const u8) void {
         const lazy = self.ptrBuilder().path(path);
         if (self.getMode() == .Debug) {
             std.debug.print("[{s} include] {s}\n", .{
