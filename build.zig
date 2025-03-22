@@ -199,7 +199,7 @@ const Toolbox = struct {
         }
 
         if (proc.stdout) |out| {
-            std.debug.print("{s}", .{
+            std.debug.print("into run: {s}\n", .{
                 stdout.items,
             });
             out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.getBuilder().allocator), " \n");
