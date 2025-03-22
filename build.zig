@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 var singleton: ?Toolbox = null;
 
@@ -6,10 +7,10 @@ pub fn isInit() bool {
     return singleton != null;
 }
 
-pub fn init(builder: *std.Build, mode: std.builtin.OptimizeMode) Error.ToolboxInit!void {
+pub fn init(builder: *std.Build, mode: std.builtin.OptimizeMode) void {
     if (!isInit()) {
         singleton = undefined;
-        try singleton.?.init();
+        singleton.?.init();
     }
 }
 
