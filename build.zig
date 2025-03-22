@@ -23,6 +23,36 @@ pub fn instance() *Toolbox {
     return if (singleton) |*toolbox| toolbox else @panic("Toolbox not initialized");
 }
 
+pub fn isCSource(name: []const u8) bool {
+    return std.mem.endsWith(u8, name, ".c");
+}
+
+pub fn isCppSource(name: []const u8) bool {
+    return std.mem.endsWith(u8, name, ".cc") or std.mem.endsWith(u8, name, ".cpp");
+}
+
+pub fn isSource(name: []const u8) bool {
+    return isCSource(name) or isCppSource(name);
+}
+
+pub fn isCHeader(name: []const u8) bool {
+    return std.mem.endsWith(u8, name, ".h");
+}
+
+pub fn isCppHeader(name: []const u8) bool {
+    return std.mem.endsWith(u8, name, ".hpp") or std.mem.endsWith(u8, name, ".hpp11");
+}
+
+pub fn isHeader(name: []const u8) bool {
+    return isCHeader(name) or isCppHeader(name);
+}
+
+pub fn exists(path: []const u8) bool {
+    if (path.len == 0) return false;
+    std.fs.accessAbsolute(path, .{}) catch return false;
+    return true;
+}
+
 const Toolbox = struct {
     __builder: *std.Build,
     __mode: std.builtin.OptimizeMode,
@@ -82,38 +112,6 @@ const Toolbox = struct {
             },
             .flags = flags,
         });
-    }
-
-    pub fn isCSource(_: @This(), name: []const u8) bool {
-        return std.mem.endsWith(u8, name, ".c");
-    }
-
-    pub fn isCppSource(_: @This(), name: []const u8) bool {
-        return std.mem.endsWith(u8, name, ".cc") or
-            std.mem.endsWith(u8, name, ".cpp");
-    }
-
-    pub fn isSource(self: @This(), name: []const u8) bool {
-        return self.isCSource(name) or self.isCppSource(name);
-    }
-
-    pub fn isCHeader(_: @This(), name: []const u8) bool {
-        return std.mem.endsWith(u8, name, ".h");
-    }
-
-    pub fn isCppHeader(_: @This(), name: []const u8) bool {
-        return std.mem.endsWith(u8, name, ".hpp") or
-            std.mem.endsWith(u8, name, ".hpp11");
-    }
-
-    pub fn isHeader(self: @This(), name: []const u8) bool {
-        return self.isCHeader(name) or self.isCppHeader(name);
-    }
-
-    pub fn exists(_: @This(), path: []const u8) bool {
-        if (path.len == 0) return false;
-        std.fs.accessAbsolute(path, .{}) catch return false;
-        return true;
     }
 
     pub fn write(self: @This(), path: []const u8, name: []const u8, content: []const u8) !void {
