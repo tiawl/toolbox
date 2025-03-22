@@ -10,7 +10,7 @@ pub fn isInit() bool {
 pub fn init(builder: *std.Build, mode: std.builtin.OptimizeMode) void {
     if (!isInit()) {
         singleton = undefined;
-        singleton.?.init();
+        singleton.?.init(builder, mode);
     }
 }
 
