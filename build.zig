@@ -199,9 +199,6 @@ const Toolbox = struct {
         }
 
         if (proc.stdout) |out| {
-            std.debug.print("into run: {s}\n", .{
-                stdout.items,
-            });
             out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.getBuilder().allocator), " \n");
         } else if (self.getMode() == .Debug) {
             std.debug.print("{s}", .{
@@ -315,7 +312,6 @@ pub const Repository = struct {
     }
 
     fn isLatestValid(self: @This()) !void {
-        std.debug.print("latest = {s}\n", .{self.getLatest()});
         _ = try std.SemanticVersion.parse(self.getLatest());
     }
 
@@ -328,14 +324,16 @@ pub const Repository = struct {
 
     fn searchLatest(self: *@This(), branch_opt: ?[]const u8) !void {
         var tmp_dir = std.testing.tmpDir(.{});
+        defer tmp_dir.cleanup();
         const tmp = try tmp_dir.dir.realpathAlloc(instance().getBuilder().allocator, ".");
 
         try instance().run(.{
             .argv = if (branch_opt) |branch| &[_][]const u8{
-                "git", "clone", "--bare", "--branch", branch, "--filter=blob:none", self.getUrl(), tmp,
+                "git", "clone", "--bare", "--branch", branch, "--filter=blob:none", self.getUrl(), &tmp_dir.sub_path,
             } else &[_][]const u8{
-                "git", "clone", "--bare", "--filter=blob:none", self.getUrl(), tmp,
+                "git", "clone", "--bare", "--filter=blob:none", self.getUrl(), &tmp_dir.sub_path,
             },
+            .cwd = try tmp_dir.parent_dir.realpathAlloc(instance().getBuilder().allocator, ".");
         });
 
         switch (self.getRef()) {
@@ -368,7 +366,8 @@ pub const Repository = struct {
                 .stdout = self.ptrLatest(),
                 .ignore_errors = true,
             });
-            try self.isLatestValid();
+            self.isLatestValid() catch continue;
+            break;
         } else return error.NoValidTag;
     }
 
