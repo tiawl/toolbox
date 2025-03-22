@@ -26,7 +26,7 @@ const Toolbox = struct {
     __builder: *std.Build,
     __mode: std.builtin.OptimizeMode,
 
-    fn init (self: *@This(), builder: *std.Build, mode: std.builtin.OptimizeMode) void {
+    fn init(self: *@This(), builder: *std.Build, mode: std.builtin.OptimizeMode) void {
         self.* = .{
             .__builder = builder,
             .__mode = mode,
@@ -190,12 +190,13 @@ const Toolbox = struct {
             std.debug.print("\x1b[31m{s}\x1b[0m", .{
                 stderr.items,
             });
-        } if (!proc.ignore_errors and proc.wait == null) {
+        }
+        if (!proc.ignore_errors and proc.wait == null) {
             try std.testing.expectEqual(term, exit_success);
         }
 
         if (proc.stdout) |out| {
-            out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.ptrBuilder().allocator), " \n")
+            out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.ptrBuilder().allocator), " \n");
         } else if (self.getMode() == .Debug) {
             std.debug.print("{s}", .{
                 stdout.items,
@@ -333,13 +334,13 @@ pub const Repository = struct {
         switch (self.getRef()) {
             .commit => self.searchLatestCommit(tmp),
             .tag => self.searchLatestTag(tmp),
-        };
+        }
     }
 
     fn searchLatestCommit(self: *@This(), tmp: []const u8) !void {
         try instance().run(.{
             .argv = &[_][]const u8{
-                "git",  "rev-parse", "HEAD",
+                "git", "rev-parse", "HEAD",
             },
             .cwd = tmp,
             .stdout = self.ptrLatest(),
@@ -354,7 +355,7 @@ pub const Repository = struct {
             });
             try instance().run(.{
                 .argv = &[_][]const u8{
-                    "git",    "describe", "--tags", "--exact-match", commit,
+                    "git", "describe", "--tags", "--exact-match", commit,
                 },
                 .cwd = tmp,
                 .stdout = self.ptrLatest(),
@@ -428,7 +429,7 @@ pub const Dependencies = struct {
                 const proto_ref = @field(proto, field.name).ref;
                 const module_name = proto_name[std.mem.indexOfScalar(u8, proto_name, '/').? + 1 ..];
                 const fork = instance().ptrBuilder().option([]const u8, module_name, "Switch to the given branch from a given fork for the " ++ proto_name ++ " repository") orelse "";
-                const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0 .. i] else proto_name;
+                const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0..i] else proto_name;
                 const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else null;
                 repository = Repository.init(name, switch (proto_host) {
                     .github => Repository.Github.url(name),
@@ -554,8 +555,12 @@ pub fn build(builder: *std.Build) !void {
     if (@import("builtin").os.tag != .windows) {
         const clean_step = builder.step("clean", "Clean up");
 
-        clean_step.dependOn(&builder.addRemoveDirTree(.{ .cwd_relative = builder.install_path }).step);
+        clean_step.dependOn(&builder.addRemoveDirTree(.{
+            .cwd_relative = builder.install_path,
+        }).step);
 
-        clean_step.dependOn(&builder.addRemoveDirTree(.{.cwd_relative = builder.pathFromRoot("zig-cache") }).step);
+        clean_step.dependOn(&builder.addRemoveDirTree(.{
+            .cwd_relative = builder.pathFromRoot("zig-cache"),
+        }).step);
     }
 }
