@@ -64,7 +64,7 @@ const Toolbox = struct {
             .__builder = builder,
             .__mode = mode,
             .__fetch = builder.option(bool, "fetch", "Update .references folder and build.zig.zon then stop execution") orelse false,
-            .__update = builder().option(bool, "update", "Update binding") orelse false,
+            .__update = builder.option(bool, "update", "Update binding") orelse false,
         };
     }
 
