@@ -333,7 +333,7 @@ pub const Repository = struct {
             } else &[_][]const u8{
                 "git", "clone", "--bare", "--filter=blob:none", self.getUrl(), &tmp_dir.sub_path,
             },
-            .cwd = try tmp_dir.parent_dir.realpathAlloc(instance().getBuilder().allocator, ".");
+            .cwd = try tmp_dir.parent_dir.realpathAlloc(instance().getBuilder().allocator, "."),
         });
 
         switch (self.getRef()) {
