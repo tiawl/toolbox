@@ -312,6 +312,7 @@ pub const Repository = struct {
     }
 
     fn isLatestValid(self: @This()) !void {
+        std.debug.print("latest = {s}\n", .{self.getLatest()});
         _ = try std.SemanticVersion.parse(self.getLatest());
     }
 
