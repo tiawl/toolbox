@@ -381,7 +381,7 @@ pub const Repository = struct {
     };
 };
 
-fn reference(repo: []const u8) ![]const u8 {
+pub fn reference(repo: []const u8) ![]const u8 {
     const path = try instance().ptrBuilder().build_root.join(instance().ptrBuilder().allocator, &.{
         ".references", repo,
     });
