@@ -26,10 +26,6 @@ These repositories are automatically updated when a new release is available:
 * [tiawl/oniguruma.zig][12]
 * [tiawl/libjq.zig][11]
 
-## Documentation
-
-A minimal documentation is available [here](https://github.com/tiawl/toolbox/blob/trunk/DOC.md)
-
 ## License
 
 This repository is dedicated to the public domain. See the LICENSE file for more details.
