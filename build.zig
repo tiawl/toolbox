@@ -147,7 +147,7 @@ const Toolbox = struct {
         try std.fs.copyFileAbsolute(src, dest, .{});
     }
 
-    pub fn run(self: @This(), proc: struct {
+    pub fn run(self: *@This(), proc: struct {
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
         env: ?*const std.process.EnvMap = null,
