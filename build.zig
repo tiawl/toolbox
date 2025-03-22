@@ -312,9 +312,7 @@ pub const Repository = struct {
     }
 
     fn isLatestValid(self: @This()) !void {
-        if (std.mem.indexOfAny(u8, self.getLatest(), "0123456789")) |index| {
-            _ = try std.SemanticVersion.parse(self.getLatest()[index..]);
-        } else return error.InvalidVersion;
+        if (std.mem.indexOfAny(u8, self.getLatest(), "0123456789") == null or std.mem.indexOfScalar(u8, self.getLatest(), '.') == null) return error.InvalidLatest;
     }
 
     fn getShortLatest(self: @This()) []const u8 {
