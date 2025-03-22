@@ -82,7 +82,7 @@ const Toolbox = struct {
         return self.__fetch;
     }
 
-    fn getUpdate(self: @This()) bool {
+    pub fn getUpdate(self: @This()) bool {
         return self.__update;
     }
 
