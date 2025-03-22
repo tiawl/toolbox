@@ -70,6 +70,10 @@ const Toolbox = struct {
         return self.__mode;
     }
 
+    pub fn getBuilder(self: @This()) *const std.Build {
+        return self.__builder;
+    }
+
     pub fn ptrBuilder(self: *@This()) *std.Build {
         return self.__builder;
     }
@@ -147,7 +151,7 @@ const Toolbox = struct {
         try std.fs.copyFileAbsolute(src, dest, .{});
     }
 
-    pub fn run(self: *@This(), proc: struct {
+    pub fn run(self: @This(), proc: struct {
         argv: []const []const u8,
         cwd: ?[]const u8 = null,
         env: ?*const std.process.EnvMap = null,
@@ -160,11 +164,11 @@ const Toolbox = struct {
 
         if (self.getMode() == .Debug) {
             std.debug.print("\x1b[35m[{s}]\x1b[0m\n", .{
-                try std.mem.join(self.ptrBuilder().allocator, " ", proc.argv),
+                try std.mem.join(self.getBuilder().allocator, " ", proc.argv),
             });
         }
 
-        var child = std.process.Child.init(proc.argv, self.ptrBuilder().allocator);
+        var child = std.process.Child.init(proc.argv, self.getBuilder().allocator);
 
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
@@ -179,7 +183,7 @@ const Toolbox = struct {
             wait();
             term = try child.kill();
         } else {
-            try child.collectOutput(self.ptrBuilder().allocator, &stdout, &stderr, std.math.maxInt(usize));
+            try child.collectOutput(self.getBuilder().allocator, &stdout, &stderr, std.math.maxInt(usize));
             term = try child.wait();
         }
         const exit_success = std.process.Child.Term{
@@ -195,7 +199,7 @@ const Toolbox = struct {
         }
 
         if (proc.stdout) |out| {
-            out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.ptrBuilder().allocator), " \n");
+            out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.getBuilder().allocator), " \n");
         } else if (self.getMode() == .Debug) {
             std.debug.print("{s}", .{
                 stdout.items,
@@ -215,7 +219,7 @@ const Toolbox = struct {
             });
             defer dir.close();
 
-            root_path = try self.ptrBuilder().build_root.join(self.ptrBuilder().allocator, &.{
+            root_path = try self.ptrBuilder().build_root.join(self.getBuilder().allocator, &.{
                 path,
             });
 
@@ -223,7 +227,7 @@ const Toolbox = struct {
             while (flag) {
                 flag = false;
 
-                walker = try dir.walk(self.ptrBuilder().allocator);
+                walker = try dir.walk(self.getBuilder().allocator);
                 defer walker.deinit();
 
                 walk: while (try walker.next()) |*entry| {
@@ -320,7 +324,7 @@ pub const Repository = struct {
 
     fn searchLatest(self: *@This(), branch_opt: ?[]const u8) !void {
         var tmp_dir = std.testing.tmpDir(.{});
-        const tmp = try tmp_dir.dir.realpathAlloc(instance().ptrBuilder().allocator, ".");
+        const tmp = try tmp_dir.dir.realpathAlloc(instance().getBuilder().allocator, ".");
 
         try instance().run(.{
             .argv = if (branch_opt) |branch| &[_][]const u8{
@@ -382,10 +386,10 @@ pub const Repository = struct {
 };
 
 pub fn reference(repo: []const u8) ![]const u8 {
-    const path = try instance().ptrBuilder().build_root.join(instance().ptrBuilder().allocator, &.{
+    const path = try instance().ptrBuilder().build_root.join(instance().getBuilder().allocator, &.{
         ".references", repo,
     });
-    return std.mem.trim(u8, try instance().ptrBuilder().build_root.handle.readFileAlloc(instance().ptrBuilder().allocator, path, std.math.maxInt(usize)), " \n");
+    return std.mem.trim(u8, try instance().ptrBuilder().build_root.handle.readFileAlloc(instance().getBuilder().allocator, path, std.math.maxInt(usize)), " \n");
 }
 
 pub const Dependencies = struct {
@@ -410,8 +414,8 @@ pub const Dependencies = struct {
 
     pub fn init(pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, intern_proto: anytype, extern_proto: anytype) !@This() {
         var self = @This(){
-            .__intern = std.StringHashMap(Repository).init(instance().ptrBuilder().allocator),
-            .__extern = std.StringHashMap(Repository).init(instance().ptrBuilder().allocator),
+            .__intern = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
+            .__extern = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
         };
 
         const fetch = instance().ptrBuilder().option(bool, "fetch", "Update .references folder and build.zig.zon then stop execution") orelse false;
@@ -488,7 +492,7 @@ pub const Dependencies = struct {
     }
 
     fn fetchIntern(self: @This(), pkg: @Type(.enum_literal), fingerprint: []const u8, additional_paths: []const []const u8) !void {
-        var buffer = std.ArrayList(u8).init(instance().ptrBuilder().allocator);
+        var buffer = std.ArrayList(u8).init(instance().getBuilder().allocator);
         const writer = buffer.writer();
 
         try writer.print(
@@ -523,8 +527,8 @@ pub const Dependencies = struct {
         try buffer.append(0);
         const source = buffer.items[0 .. buffer.items.len - 1 :0];
 
-        const validated = try std.zig.Ast.parse(instance().ptrBuilder().allocator, source, .zon);
-        const formatted = try validated.render(instance().ptrBuilder().allocator);
+        const validated = try std.zig.Ast.parse(instance().getBuilder().allocator, source, .zon);
+        const formatted = try validated.render(instance().getBuilder().allocator);
 
         try instance().ptrBuilder().build_root.handle.deleteFile("build.zig.zon");
         try instance().ptrBuilder().build_root.handle.writeFile(.{
