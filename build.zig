@@ -331,8 +331,8 @@ pub const Repository = struct {
         });
 
         switch (self.getRef()) {
-            .commit => self.searchLatestCommit(tmp),
-            .tag => self.searchLatestTag(tmp),
+            .commit => try self.searchLatestCommit(tmp),
+            .tag => try self.searchLatestTag(tmp),
         }
     }
 
