@@ -329,9 +329,9 @@ pub const Repository = struct {
 
         try instance().run(.{
             .argv = if (branch_opt) |branch| &[_][]const u8{
-                "git", "clone", "--bare", "--branch", branch, "--filter=blob:none", self.getUrl(), &tmp_dir.sub_path,
+                "git", "clone", "--bare", "--branch", branch, "--filter=blob:none", "--", self.getUrl(), &tmp_dir.sub_path,
             } else &[_][]const u8{
-                "git", "clone", "--bare", "--filter=blob:none", self.getUrl(), &tmp_dir.sub_path,
+                "git", "clone", "--bare", "--filter=blob:none", "--", self.getUrl(), &tmp_dir.sub_path,
             },
             .cwd = try tmp_dir.parent_dir.realpathAlloc(instance().getBuilder().allocator, "."),
         });
@@ -459,13 +459,13 @@ pub const Dependencies = struct {
         switch (self.getExtern(repo).getRef()) {
             .tag => try instance().run(.{
                 .argv = &[_][]const u8{
-                    "git", "clone", "--branch", try reference(repo), "--depth", "1", self.getExtern(repo).getUrl(), path,
+                    "git", "clone", "--branch", try reference(repo), "--depth", "1", "--", self.getExtern(repo).getUrl(), path,
                 },
             }),
             .commit => {
                 try instance().run(.{
                     .argv = &[_][]const u8{
-                        "git", "clone", self.getExtern(repo).getUrl(), path,
+                        "git", "clone", "--", self.getExtern(repo).getUrl(), path,
                     },
                 });
                 try instance().run(.{
