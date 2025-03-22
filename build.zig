@@ -56,11 +56,15 @@ pub fn exists(path: []const u8) bool {
 const Toolbox = struct {
     __builder: *std.Build,
     __mode: std.builtin.OptimizeMode,
+    __fetch: bool,
+    __update: bool,
 
     fn init(self: *@This(), builder: *std.Build, mode: std.builtin.OptimizeMode) void {
         self.* = .{
             .__builder = builder,
             .__mode = mode,
+            .__fetch = builder.option(bool, "fetch", "Update .references folder and build.zig.zon then stop execution") orelse false,
+            .__update = builder().option(bool, "update", "Update binding") orelse false,
         };
     }
 
@@ -72,6 +76,14 @@ const Toolbox = struct {
 
     pub fn getBuilder(self: @This()) *const std.Build {
         return self.__builder;
+    }
+
+    fn getFetch(self: @This()) bool {
+        return self.__fetch;
+    }
+
+    fn getUpdate(self: @This()) bool {
+        return self.__update;
     }
 
     pub fn ptrBuilder(self: *@This()) *std.Build {
@@ -421,8 +433,6 @@ pub const Dependencies = struct {
             .__extern = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
         };
 
-        const fetch = instance().ptrBuilder().option(bool, "fetch", "Update .references folder and build.zig.zon then stop execution") orelse false;
-
         var repository: Repository = undefined;
         inline for (.{
             intern_proto, extern_proto,
@@ -441,12 +451,12 @@ pub const Dependencies = struct {
                     .github => Repository.Github.url(name),
                     .gitlab => Repository.Gitlab.url(@field(proto, field.name).domain, name),
                 }, null, proto_ref);
-                if (fetch) try repository.searchLatest(branch);
+                if (instance().getFetch()) try repository.searchLatest(branch);
                 try @field(self, attr).put(field.name, repository);
             }
         }
 
-        if (fetch) {
+        if (instance().getFetch()) {
             try self.fetchExtern();
             try self.fetchIntern(pkg, fingerprint, paths);
             std.process.exit(0);
