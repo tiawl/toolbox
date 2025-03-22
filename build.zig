@@ -102,7 +102,7 @@ const Toolbox = struct {
     }
 
     pub fn addSource(self: @This(), lib: *std.Build.Step.Compile, root_path: []const u8, base_path: []const u8, flags: []const []const u8) !void {
-        const source_path = self.ptrBuilder().pathJoin(&.{
+        const source_path = self.getBuilder().pathJoin(&.{
             root_path, base_path,
         });
         if (self.getMode() == .Debug) {
@@ -231,7 +231,7 @@ const Toolbox = struct {
                 defer walker.deinit();
 
                 walk: while (try walker.next()) |*entry| {
-                    const entry_abspath = self.ptrBuilder().pathJoin(&.{
+                    const entry_abspath = self.getBuilder().pathJoin(&.{
                         root_path, entry.path,
                     });
                     switch (entry.kind) {
