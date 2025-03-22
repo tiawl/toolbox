@@ -214,12 +214,12 @@ const Toolbox = struct {
         var walker: std.fs.Dir.Walker = undefined;
 
         for (paths) |path| {
-            dir = try self.ptrBuilder().build_root.handle.openDir(path, .{
+            dir = try self.getBuilder().build_root.handle.openDir(path, .{
                 .iterate = true,
             });
             defer dir.close();
 
-            root_path = try self.ptrBuilder().build_root.join(self.getBuilder().allocator, &.{
+            root_path = try self.getBuilder().build_root.join(self.getBuilder().allocator, &.{
                 path,
             });
 
@@ -386,10 +386,10 @@ pub const Repository = struct {
 };
 
 pub fn reference(repo: []const u8) ![]const u8 {
-    const path = try instance().ptrBuilder().build_root.join(instance().getBuilder().allocator, &.{
+    const path = try instance().getBuilder().build_root.join(instance().getBuilder().allocator, &.{
         ".references", repo,
     });
-    return std.mem.trim(u8, try instance().ptrBuilder().build_root.handle.readFileAlloc(instance().getBuilder().allocator, path, std.math.maxInt(usize)), " \n");
+    return std.mem.trim(u8, try instance().getBuilder().build_root.handle.readFileAlloc(instance().getBuilder().allocator, path, std.math.maxInt(usize)), " \n");
 }
 
 pub const Dependencies = struct {
@@ -476,7 +476,7 @@ pub const Dependencies = struct {
     }
 
     fn fetchExtern(self: @This()) !void {
-        var references_dir = try instance().ptrBuilder().build_root.handle.openDir(".references", .{});
+        var references_dir = try instance().getBuilder().build_root.handle.openDir(".references", .{});
         defer references_dir.close();
 
         var it = self.getExterns();
@@ -507,7 +507,7 @@ pub const Dependencies = struct {
             '{', pkg, builtin.zig_version.major, builtin.zig_version.minor, fingerprint, '{',
         });
 
-        var build_dir = try instance().ptrBuilder().build_root.handle.openDir(".", .{
+        var build_dir = try instance().getBuilder().build_root.handle.openDir(".", .{
             .iterate = true,
         });
         defer build_dir.close();
@@ -530,8 +530,8 @@ pub const Dependencies = struct {
         const validated = try std.zig.Ast.parse(instance().getBuilder().allocator, source, .zon);
         const formatted = try validated.render(instance().getBuilder().allocator);
 
-        try instance().ptrBuilder().build_root.handle.deleteFile("build.zig.zon");
-        try instance().ptrBuilder().build_root.handle.writeFile(.{
+        try instance().getBuilder().build_root.handle.deleteFile("build.zig.zon");
+        try instance().getBuilder().build_root.handle.writeFile(.{
             .sub_path = "build.zig.zon",
             .data = formatted,
         });
