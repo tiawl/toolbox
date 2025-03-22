@@ -101,8 +101,8 @@ const Toolbox = struct {
         lib.addIncludePath(lazy);
     }
 
-    pub fn addSource(self: @This(), lib: *std.Build.Step.Compile, root_path: []const u8, base_path: []const u8, flags: []const []const u8) !void {
-        const source_path = self.getBuilder().pathJoin(&.{
+    pub fn addSource(self: *@This(), lib: *std.Build.Step.Compile, root_path: []const u8, base_path: []const u8, flags: []const []const u8) !void {
+        const source_path = self.ptrBuilder().pathJoin(&.{
             root_path, base_path,
         });
         if (self.getMode() == .Debug) {
@@ -207,7 +207,7 @@ const Toolbox = struct {
         }
     }
 
-    pub fn clean(self: @This(), paths: []const []const u8, extensions: []const []const u8) !void {
+    pub fn clean(self: *@This(), paths: []const []const u8, extensions: []const []const u8) !void {
         var flag: bool = undefined;
         var dir: std.fs.Dir = undefined;
         var root_path: []const u8 = undefined;
@@ -231,7 +231,7 @@ const Toolbox = struct {
                 defer walker.deinit();
 
                 walk: while (try walker.next()) |*entry| {
-                    const entry_abspath = self.getBuilder().pathJoin(&.{
+                    const entry_abspath = self.ptrBuilder().pathJoin(&.{
                         root_path, entry.path,
                     });
                     switch (entry.kind) {
