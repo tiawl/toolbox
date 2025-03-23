@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const EnumLiteral = @Type(.enum_literal);
+
 const FetchTarget = struct {
     name: []const u8,
     domain: []const u8 = "",
@@ -38,7 +40,7 @@ pub fn isInit() bool {
     return singleton != null;
 }
 
-pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
+pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
     if (!isInit()) {
         singleton = undefined;
         singleton.?.init(FromZon, DuringExec, builder, mode, pkg, fingerprint, paths, from_zon_deps, during_exec_deps) catch |err| switch (err) {
@@ -95,7 +97,7 @@ const Toolbox = struct {
     __update: bool,
     __zon_forks: std.StringHashMap([]const u8),
 
-    fn init(self: *@This(), comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
+    fn init(self: *@This(), comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
         self.* = .{
             .__builder = builder,
             .__mode = mode,
@@ -136,7 +138,7 @@ const Toolbox = struct {
         return self.__update;
     }
 
-    pub fn ptrBuilder(self: *@This()) *std.Build {
+    fn ptrBuilder(self: *@This()) *std.Build {
         return self.__builder;
     }
 
@@ -156,7 +158,7 @@ const Toolbox = struct {
         try self.ptrZonForks().put(key, self.ptrBuilder().option([]const u8, key, "Switch to the given branch from a given fork for the " ++ key ++ " repository") orelse "");
     }
 
-    pub fn clone(self: @This(), repo: []const u8, path: []const u8) !void {
+    pub fn clone(self: @This(), repo: EnumLiteral, path: []const u8) !void {
         try self.getDependencies().clone(repo, path);
     }
 
@@ -346,6 +348,18 @@ const Toolbox = struct {
             }
         }
     }
+
+    pub fn buildRootJoin(self: @This(), paths: []const []const u8) ![]u8 {
+        return self.getBuilder().build_root.join(self.getBuilder().allocator, paths);
+    }
+
+    pub fn pathJoin(self: *@This(), paths: []const []const u8) []u8 {
+        return self.ptrBuilder().pathJoin(paths);
+    }
+
+    pub fn fmt(self: *@This(), comptime format: []const u8, args: anytype) []u8 {
+        return self.ptrBuilder().fmt(format, args);
+    }
 };
 
 const Repository = struct {
@@ -454,53 +468,53 @@ const Repository = struct {
     }
 };
 
-pub fn reference(repo: []const u8) ![]const u8 {
+pub fn reference(repo: EnumLiteral) ![]const u8 {
     const path = try instance().getBuilder().build_root.join(instance().getBuilder().allocator, &.{
-        ".references", repo,
+        ".references", @tagName(repo),
     });
     return std.mem.trim(u8, try instance().getBuilder().build_root.handle.readFileAlloc(instance().getBuilder().allocator, path, std.math.maxInt(usize)), " \n");
 }
 
 const Dependencies = struct {
-    __from_zon_deps: std.StringHashMap(Repository),
-    __during_exec_deps: std.StringHashMap(Repository),
+    __from_zon_deps: std.HashMap(EnumLiteral, Repository),
+    __during_exec_deps: std.HashMap(EnumLiteral, Repository),
 
-    fn getFromZonDeps(self: @This()) std.StringHashMap(Repository) {
+    fn getFromZonDeps(self: @This()) std.HashMap(EnumLiteral, Repository) {
         return self.__from_zon_deps;
     }
 
-    fn getDuringExecDeps(self: @This()) std.StringHashMap(Repository) {
+    fn getDuringExecDeps(self: @This()) std.HashMap(EnumLiteral, Repository) {
         return self.__during_exec_deps;
     }
 
-    fn ptrFromZonDeps(self: *@This()) *std.StringHashMap(Repository) {
+    fn ptrFromZonDeps(self: *@This()) *std.HashMap(EnumLiteral, Repository) {
         return &self.__from_zon_deps;
     }
 
-    fn ptrDuringExecDeps(self: *@This()) *std.StringHashMap(Repository) {
+    fn ptrDuringExecDeps(self: *@This()) *std.HashMap(EnumLiteral, Repository) {
         return &self.__during_exec_deps;
     }
 
-    fn getFromZon(self: @This(), key: []const u8) Repository {
+    fn getFromZon(self: @This(), key: EnumLiteral) Repository {
         return self.getFromZonDeps().get(key).?;
     }
 
-    fn getDuringExec(self: @This(), key: []const u8) Repository {
+    fn getDuringExec(self: @This(), key: EnumLiteral) Repository {
         return self.getDuringExecDeps().get(key).?;
     }
 
-    fn getFromZonKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
+    fn getFromZonKeys(self: @This()) std.HashMap(EnumLiteral, Repository).KeyIterator {
         return self.getFromZonDeps().keyIterator();
     }
 
-    fn getDuringExecKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
+    fn getDuringExecKeys(self: @This()) std.HashMap(EnumLiteral, Repository).KeyIterator {
         return self.getDuringExecDeps().keyIterator();
     }
 
-    fn init(comptime FromZon: type, comptime DuringExec: type, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
+    fn init(comptime FromZon: type, comptime DuringExec: type, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
         var self: @This() = .{
-            .__from_zon_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
-            .__during_exec_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
+            .__from_zon_deps = std.HashMap(EnumLiteral, Repository).init(instance().getBuilder().allocator),
+            .__during_exec_deps = std.HashMap(EnumLiteral, Repository).init(instance().getBuilder().allocator),
         };
 
         var repository: Repository = undefined;
@@ -540,7 +554,7 @@ const Dependencies = struct {
         return self;
     }
 
-    fn clone(self: @This(), repo: []const u8, path: []const u8) !void {
+    fn clone(self: @This(), repo: EnumLiteral, path: []const u8) !void {
         switch (self.getDuringExec(repo).getRef()) {
             .tag => try instance().run(.{
                 .argv = &[_][]const u8{
@@ -579,7 +593,7 @@ const Dependencies = struct {
         }
     }
 
-    fn fetchFromZonDeps(self: @This(), pkg: @Type(.enum_literal), fingerprint: []const u8, additional_paths: []const []const u8) !void {
+    fn fetchFromZonDeps(self: @This(), pkg: EnumLiteral, fingerprint: []const u8, additional_paths: []const []const u8) !void {
         var buffer = std.ArrayList(u8).init(instance().getBuilder().allocator);
         const writer = buffer.writer();
 
