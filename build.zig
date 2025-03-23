@@ -104,7 +104,7 @@ const Toolbox = struct {
 
         self.__dependencies = try Dependencies.init(FromZon, DuringExec, pkg, fingerprint, paths, from_zon, during_exec);
 
-        inline for (@typeInfo(FromZon).fields) |field| {
+        inline for (@typeInfo(FromZon).@"struct".fields) |field| {
             try self.addZonFork(field.name);
         }
     }
@@ -149,7 +149,7 @@ const Toolbox = struct {
         return self.getZonForks().get(key) orelse "";
     }
 
-    fn addZonFork(self: *@This(), key: [] const u8) !void {
+    fn addZonFork(self: *@This(), comptime key: [] const u8) !void {
         try self.ptrZonForks().put(key, self.ptrBuilder().option([]const u8, key, "Switch to the given branch from a given fork for the " ++ key ++ " repository") orelse "");
     }
 
@@ -503,7 +503,7 @@ const Dependencies = struct {
                     }),
                     .gitlab => instance().ptrBuilder().fmt("https://gitlab.{s}/{s}", .{
                         @field(@"struct", field.name).domain, name,
-                    });
+                    }),
                 }, null, struct_ref);
                 if (instance().getFetch()) try repository.searchLatest(branch);
                 try @field(self, attr).put(field.name, repository);
