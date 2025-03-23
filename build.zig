@@ -18,7 +18,7 @@ pub fn Repositories(comptime tuple: anytype) type {
                 for (tuple, 0..) |literal, i| {
                     fields[i] = .{
                         .name = @tagName(literal),
-                        .@"type" = FetchTarget,
+                        .type = FetchTarget,
                         .default_value_ptr = null,
                         .is_comptime = false,
                         .alignment = 0,
@@ -152,7 +152,7 @@ const Toolbox = struct {
         return self.getZonForks().get(key) orelse "";
     }
 
-    fn addZonFork(self: *@This(), comptime key: [] const u8) !void {
+    fn addZonFork(self: *@This(), comptime key: []const u8) !void {
         try self.ptrZonForks().put(key, self.ptrBuilder().option([]const u8, key, "Switch to the given branch from a given fork for the " ++ key ++ " repository") orelse "");
     }
 
