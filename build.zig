@@ -526,7 +526,7 @@ const Dependencies = struct {
                 }, null, struct_ref);
                 if (instance().getFetch()) try repository.searchLatest(branch);
                 try @call(.auto, func, .{
-                    self,
+                    &self,
                 }).put(field.name, repository);
             }
         }
