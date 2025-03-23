@@ -476,22 +476,22 @@ pub fn reference(repo: EnumLiteral) ![]const u8 {
 }
 
 const Dependencies = struct {
-    __from_zon_deps: std.HashMap(EnumLiteral, Repository),
-    __during_exec_deps: std.HashMap(EnumLiteral, Repository),
+    __from_zon_deps: std.AutoHashMap(EnumLiteral, Repository),
+    __during_exec_deps: std.AutoHashMap(EnumLiteral, Repository),
 
-    fn getFromZonDeps(self: @This()) std.HashMap(EnumLiteral, Repository) {
+    fn getFromZonDeps(self: @This()) std.AutoHashMap(EnumLiteral, Repository) {
         return self.__from_zon_deps;
     }
 
-    fn getDuringExecDeps(self: @This()) std.HashMap(EnumLiteral, Repository) {
+    fn getDuringExecDeps(self: @This()) std.AutoHashMap(EnumLiteral, Repository) {
         return self.__during_exec_deps;
     }
 
-    fn ptrFromZonDeps(self: *@This()) *std.HashMap(EnumLiteral, Repository) {
+    fn ptrFromZonDeps(self: *@This()) *std.AutoHashMap(EnumLiteral, Repository) {
         return &self.__from_zon_deps;
     }
 
-    fn ptrDuringExecDeps(self: *@This()) *std.HashMap(EnumLiteral, Repository) {
+    fn ptrDuringExecDeps(self: *@This()) *std.AutoHashMap(EnumLiteral, Repository) {
         return &self.__during_exec_deps;
     }
 
@@ -503,18 +503,18 @@ const Dependencies = struct {
         return self.getDuringExecDeps().get(key).?;
     }
 
-    fn getFromZonKeys(self: @This()) std.HashMap(EnumLiteral, Repository).KeyIterator {
+    fn getFromZonKeys(self: @This()) std.AutoHashMap(EnumLiteral, Repository).KeyIterator {
         return self.getFromZonDeps().keyIterator();
     }
 
-    fn getDuringExecKeys(self: @This()) std.HashMap(EnumLiteral, Repository).KeyIterator {
+    fn getDuringExecKeys(self: @This()) std.AutoHashMap(EnumLiteral, Repository).KeyIterator {
         return self.getDuringExecDeps().keyIterator();
     }
 
     fn init(comptime FromZon: type, comptime DuringExec: type, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
         var self: @This() = .{
-            .__from_zon_deps = std.HashMap(EnumLiteral, Repository).init(instance().getBuilder().allocator),
-            .__during_exec_deps = std.HashMap(EnumLiteral, Repository).init(instance().getBuilder().allocator),
+            .__from_zon_deps = std.AutoHashMap(EnumLiteral, Repository).init(instance().getBuilder().allocator),
+            .__during_exec_deps = std.AutoHashMap(EnumLiteral, Repository).init(instance().getBuilder().allocator),
         };
 
         var repository: Repository = undefined;
