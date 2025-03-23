@@ -23,7 +23,7 @@ pub fn Repositories(comptime tuple: anytype) type {
                         .type = FetchTarget,
                         .default_value_ptr = null,
                         .is_comptime = false,
-                        .alignment = 0,
+                        .alignment = if (@sizeOf(FetchTarget) > 0) @alignOf(FetchTarget) else 0,
                     };
                 }
                 break :blk &fields;
@@ -186,7 +186,7 @@ const Toolbox = struct {
     }
 
     pub fn addSource(self: *@This(), lib: *std.Build.Step.Compile, root_path: []const u8, base_path: []const u8, flags: []const []const u8) !void {
-        const source_path = self.ptrBuilder().pathJoin(&.{
+        const source_path = self.pathJoin(&.{
             root_path, base_path,
         });
         if (self.getMode() == .Debug) {
@@ -315,7 +315,7 @@ const Toolbox = struct {
                 defer walker.deinit();
 
                 walk: while (try walker.next()) |*entry| {
-                    const entry_abspath = self.ptrBuilder().pathJoin(&.{
+                    const entry_abspath = self.pathJoin(&.{
                         root_path, entry.path,
                     });
                     switch (entry.kind) {
@@ -360,6 +360,10 @@ const Toolbox = struct {
     pub fn fmt(self: *@This(), comptime format: []const u8, args: anytype) []u8 {
         return self.ptrBuilder().fmt(format, args);
     }
+
+    pub fn dupe(self: *@This(), bytes: []const u8) []u8 {
+        return self.ptrBuilder().dupe(bytes);
+    }
 };
 
 const Repository = struct {
@@ -380,9 +384,9 @@ const Repository = struct {
 
     fn init(name: []const u8, url: []const u8, latest: ?[]const u8, ref: Reference) @This() {
         return .{
-            .__name = instance().ptrBuilder().dupe(name),
-            .__url = instance().ptrBuilder().dupe(url),
-            .__latest = if (latest) |tag| instance().ptrBuilder().dupe(tag) else "",
+            .__name = instance().dupe(name),
+            .__url = instance().dupe(url),
+            .__latest = if (latest) |tag| instance().dupe(tag) else "",
             .__ref = ref,
         };
     }
@@ -451,7 +455,7 @@ const Repository = struct {
     fn searchLatestTag(self: *@This(), tmp: []const u8) !void {
         var commit: []const u8 = undefined;
         for (0..std.math.maxInt(usize)) |i| {
-            commit = instance().ptrBuilder().fmt("HEAD~{}", .{
+            commit = instance().fmt("HEAD~{}", .{
                 i,
             });
             try instance().run(.{
@@ -476,45 +480,45 @@ pub fn reference(repo: EnumLiteral) ![]const u8 {
 }
 
 const Dependencies = struct {
-    __from_zon_deps: std.AutoHashMap(EnumLiteral, Repository),
-    __during_exec_deps: std.AutoHashMap(EnumLiteral, Repository),
+    __from_zon_deps: std.StringHashMap(Repository),
+    __during_exec_deps: std.StringHashMap(Repository),
 
-    fn getFromZonDeps(self: @This()) std.AutoHashMap(EnumLiteral, Repository) {
+    fn getFromZonDeps(self: @This()) std.StringHashMap(Repository) {
         return self.__from_zon_deps;
     }
 
-    fn getDuringExecDeps(self: @This()) std.AutoHashMap(EnumLiteral, Repository) {
+    fn getDuringExecDeps(self: @This()) std.StringHashMap(Repository) {
         return self.__during_exec_deps;
     }
 
-    fn ptrFromZonDeps(self: *@This()) *std.AutoHashMap(EnumLiteral, Repository) {
+    fn ptrFromZonDeps(self: *@This()) *std.StringHashMap(Repository) {
         return &self.__from_zon_deps;
     }
 
-    fn ptrDuringExecDeps(self: *@This()) *std.AutoHashMap(EnumLiteral, Repository) {
+    fn ptrDuringExecDeps(self: *@This()) *std.StringHashMap(Repository) {
         return &self.__during_exec_deps;
     }
 
-    fn getFromZon(self: @This(), key: EnumLiteral) Repository {
+    fn getFromZon(self: @This(), key: []const u8) Repository {
         return self.getFromZonDeps().get(key).?;
     }
 
-    fn getDuringExec(self: @This(), key: EnumLiteral) Repository {
+    fn getDuringExec(self: @This(), key: []const u8) Repository {
         return self.getDuringExecDeps().get(key).?;
     }
 
-    fn getFromZonKeys(self: @This()) std.AutoHashMap(EnumLiteral, Repository).KeyIterator {
+    fn getFromZonKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
         return self.getFromZonDeps().keyIterator();
     }
 
-    fn getDuringExecKeys(self: @This()) std.AutoHashMap(EnumLiteral, Repository).KeyIterator {
+    fn getDuringExecKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
         return self.getDuringExecDeps().keyIterator();
     }
 
     fn init(comptime FromZon: type, comptime DuringExec: type, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
         var self: @This() = .{
-            .__from_zon_deps = std.AutoHashMap(EnumLiteral, Repository).init(instance().getBuilder().allocator),
-            .__during_exec_deps = std.AutoHashMap(EnumLiteral, Repository).init(instance().getBuilder().allocator),
+            .__from_zon_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
+            .__during_exec_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
         };
 
         var repository: Repository = undefined;
@@ -531,10 +535,10 @@ const Dependencies = struct {
                 const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0..i] else struct_name;
                 const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else null;
                 repository = Repository.init(name, switch (struct_host) {
-                    .github => instance().ptrBuilder().fmt("https://github.com/{s}", .{
+                    .github => instance().fmt("https://github.com/{s}", .{
                         name,
                     }),
-                    .gitlab => instance().ptrBuilder().fmt("https://gitlab.{s}/{s}", .{
+                    .gitlab => instance().fmt("https://gitlab.{s}/{s}", .{
                         @field(@"struct", field.name).domain, name,
                     }),
                 }, null, struct_ref);
@@ -555,16 +559,16 @@ const Dependencies = struct {
     }
 
     fn clone(self: @This(), repo: EnumLiteral, path: []const u8) !void {
-        switch (self.getDuringExec(repo).getRef()) {
+        switch (self.getDuringExec(@tagName(repo)).getRef()) {
             .tag => try instance().run(.{
                 .argv = &[_][]const u8{
-                    "git", "clone", "--branch", try reference(repo), "--depth", "1", "--", self.getDuringExec(repo).getUrl(), path,
+                    "git", "clone", "--branch", try reference(repo), "--depth", "1", "--", self.getDuringExec(@tagName(repo)).getUrl(), path,
                 },
             }),
             .commit => {
                 try instance().run(.{
                     .argv = &[_][]const u8{
-                        "git", "clone", "--", self.getDuringExec(repo).getUrl(), path,
+                        "git", "clone", "--", self.getDuringExec(@tagName(repo)).getUrl(), path,
                     },
                 });
                 try instance().run(.{
@@ -586,7 +590,7 @@ const Dependencies = struct {
             try references_dir.deleteFile(key.*);
             try references_dir.writeFile(.{
                 .sub_path = key.*,
-                .data = instance().ptrBuilder().fmt("{s}\n", .{
+                .data = instance().fmt("{s}\n", .{
                     self.getDuringExec(key.*).getShortLatest(),
                 }),
             });
@@ -640,7 +644,7 @@ const Dependencies = struct {
 
         var it = self.getFromZonKeys();
         while (it.next()) |key| {
-            const url = instance().ptrBuilder().fmt("git+{s}#{s}", .{
+            const url = instance().fmt("git+{s}#{s}", .{
                 self.getFromZon(key.*).getUrl(), self.getFromZon(key.*).getLatest(),
             });
             try instance().run(.{
