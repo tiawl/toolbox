@@ -1,6 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const FetchTarget = struct {
+    name: []const u8,
+    domain: []const u8 = "",
+    host: Repository.Host,
+    ref: Repository.Reference,
+};
+
 pub fn Repositories(comptime tuple: anytype) type {
     std.debug.assert(@typeInfo(@TypeOf(tuple)).@"struct".is_tuple);
     return @Type(.{
@@ -11,7 +18,7 @@ pub fn Repositories(comptime tuple: anytype) type {
                 for (tuple, 0..) |literal, i| {
                     fields[i] = .{
                         .name = @tagName(literal),
-                        .@"type" = Repository,
+                        .@"type" = FetchTarget,
                         .default_value_ptr = null,
                         .is_comptime = false,
                         .alignment = 0,
@@ -442,22 +449,6 @@ pub const Repository = struct {
             break;
         } else return error.NoValidTag;
     }
-
-    const Github = struct {
-        fn url(name: []const u8) []const u8 {
-            return instance().ptrBuilder().fmt("https://github.com/{s}", .{
-                name,
-            });
-        }
-    };
-
-    const Gitlab = struct {
-        fn url(domain: []const u8, name: []const u8) []const u8 {
-            return instance().ptrBuilder().fmt("https://gitlab.{s}/{s}", .{
-                domain, name,
-            });
-        }
-    };
 };
 
 pub fn reference(repo: []const u8) ![]const u8 {
@@ -507,8 +498,12 @@ const Dependencies = struct {
                 const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0..i] else struct_name;
                 const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else null;
                 repository = Repository.init(name, switch (struct_host) {
-                    .github => Repository.Github.url(name),
-                    .gitlab => Repository.Gitlab.url(@field(@"struct", field.name).domain, name),
+                    .github => instance().ptrBuilder().fmt("https://github.com/{s}", .{
+                        name,
+                    }),
+                    .gitlab => instance().ptrBuilder().fmt("https://gitlab.{s}/{s}", .{
+                        @field(@"struct", field.name).domain, name,
+                    });
                 }, null, struct_ref);
                 if (instance().getFetch()) try repository.searchLatest(branch);
                 try @field(self, attr).put(field.name, repository);
