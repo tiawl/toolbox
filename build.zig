@@ -1,16 +1,50 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const FetchTarget = struct {
+    name: []const u8,
+    domain: []const u8 = "",
+    host: Repository.Host,
+    ref: Repository.Reference,
+};
+
+pub fn Repositories(comptime tuple: anytype) type {
+    std.debug.assert(@typeInfo(@TypeOf(tuple)).@"struct".is_tuple);
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .auto,
+            .fields = blk: {
+                var fields: [tuple.len]std.builtin.Type.StructField = undefined;
+                for (tuple, 0..) |literal, i| {
+                    fields[i] = .{
+                        .name = @tagName(literal),
+                        .type = FetchTarget,
+                        .default_value_ptr = null,
+                        .is_comptime = false,
+                        .alignment = 0,
+                    };
+                }
+                break :blk &fields;
+            },
+            .decls = &.{},
+            .is_tuple = false,
+        },
+    });
+}
+
 var singleton: ?Toolbox = null;
 
 pub fn isInit() bool {
     return singleton != null;
 }
 
-pub fn init(builder: *std.Build, mode: std.builtin.OptimizeMode) void {
+pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
     if (!isInit()) {
         singleton = undefined;
-        singleton.?.init(builder, mode);
+        singleton.?.init(FromZon, DuringExec, builder, mode, pkg, fingerprint, paths, from_zon_deps, during_exec_deps) catch |err| switch (err) {
+            error.FetchDepsSucceed => std.process.exit(0),
+            else => return err,
+        };
     }
 }
 
@@ -56,15 +90,31 @@ pub fn exists(path: []const u8) bool {
 const Toolbox = struct {
     __builder: *std.Build,
     __mode: std.builtin.OptimizeMode,
+    __dependencies: Dependencies,
+    __fetch: bool,
+    __update: bool,
+    __zon_forks: std.StringHashMap([]const u8),
 
-    fn init(self: *@This(), builder: *std.Build, mode: std.builtin.OptimizeMode) void {
+    fn init(self: *@This(), comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
         self.* = .{
             .__builder = builder,
             .__mode = mode,
+            .__dependencies = undefined,
+            .__fetch = builder.option(bool, "fetch", "Update .references folder and build.zig.zon then stop execution") orelse false,
+            .__update = builder.option(bool, "update", "Update binding") orelse false,
+            .__zon_forks = std.StringHashMap([]const u8).init(builder.allocator),
         };
+
+        self.__dependencies = try Dependencies.init(FromZon, DuringExec, pkg, fingerprint, paths, from_zon_deps, during_exec_deps);
+
+        inline for (@typeInfo(FromZon).@"struct".fields) |field| {
+            try self.addZonFork(field.name);
+        }
     }
 
-    fn deinit(_: *@This()) void {}
+    fn deinit(self: *@This()) void {
+        self.ptrZonForks().deinit();
+    }
 
     fn getMode(self: @This()) std.builtin.OptimizeMode {
         return self.__mode;
@@ -74,8 +124,40 @@ const Toolbox = struct {
         return self.__builder;
     }
 
+    fn getDependencies(self: @This()) Dependencies {
+        return self.__dependencies;
+    }
+
+    fn getFetch(self: @This()) bool {
+        return self.__fetch;
+    }
+
+    pub fn getUpdate(self: @This()) bool {
+        return self.__update;
+    }
+
     pub fn ptrBuilder(self: *@This()) *std.Build {
         return self.__builder;
+    }
+
+    fn getZonForks(self: @This()) std.StringHashMap([]const u8) {
+        return self.__zon_forks;
+    }
+
+    fn ptrZonForks(self: *@This()) *std.StringHashMap([]const u8) {
+        return &self.__zon_forks;
+    }
+
+    fn getZonFork(self: @This(), key: []const u8) []const u8 {
+        return self.getZonForks().get(key) orelse "";
+    }
+
+    fn addZonFork(self: *@This(), comptime key: []const u8) !void {
+        try self.ptrZonForks().put(key, self.ptrBuilder().option([]const u8, key, "Switch to the given branch from a given fork for the " ++ key ++ " repository") orelse "");
+    }
+
+    pub fn clone(self: @This(), repo: []const u8, path: []const u8) !void {
+        try self.getDependencies().clone(repo, path);
     }
 
     pub fn addHeader(self: @This(), lib: *std.Build.Step.Compile, source: []const u8, dest: []const u8, ext: []const []const u8) void {
@@ -266,13 +348,13 @@ const Toolbox = struct {
     }
 };
 
-pub const Repository = struct {
-    pub const Host = enum {
+const Repository = struct {
+    const Host = enum {
         github,
         gitlab,
     };
 
-    pub const Reference = enum {
+    const Reference = enum {
         tag,
         commit,
     };
@@ -370,22 +452,6 @@ pub const Repository = struct {
             break;
         } else return error.NoValidTag;
     }
-
-    const Github = struct {
-        fn url(name: []const u8) []const u8 {
-            return instance().ptrBuilder().fmt("https://github.com/{s}", .{
-                name,
-            });
-        }
-    };
-
-    const Gitlab = struct {
-        fn url(domain: []const u8, name: []const u8) []const u8 {
-            return instance().ptrBuilder().fmt("https://gitlab.{s}/{s}", .{
-                domain, name,
-            });
-        }
-    };
 };
 
 pub fn reference(repo: []const u8) ![]const u8 {
@@ -395,77 +461,96 @@ pub fn reference(repo: []const u8) ![]const u8 {
     return std.mem.trim(u8, try instance().getBuilder().build_root.handle.readFileAlloc(instance().getBuilder().allocator, path, std.math.maxInt(usize)), " \n");
 }
 
-pub const Dependencies = struct {
-    __intern: std.StringHashMap(Repository),
-    __extern: std.StringHashMap(Repository),
+const Dependencies = struct {
+    __from_zon_deps: std.StringHashMap(Repository),
+    __during_exec_deps: std.StringHashMap(Repository),
 
-    fn getIntern(self: @This(), key: []const u8) Repository {
-        return self.__intern.get(key).?;
+    fn getFromZonDeps(self: @This()) std.StringHashMap(Repository) {
+        return self.__from_zon_deps;
     }
 
-    fn getExtern(self: @This(), key: []const u8) Repository {
-        return self.__extern.get(key).?;
+    fn getDuringExecDeps(self: @This()) std.StringHashMap(Repository) {
+        return self.__during_exec_deps;
     }
 
-    fn getInterns(self: @This()) std.StringHashMap(Repository).KeyIterator {
-        return self.__intern.keyIterator();
+    fn ptrFromZonDeps(self: *@This()) *std.StringHashMap(Repository) {
+        return &self.__from_zon_deps;
     }
 
-    fn getExterns(self: @This()) std.StringHashMap(Repository).KeyIterator {
-        return self.__extern.keyIterator();
+    fn ptrDuringExecDeps(self: *@This()) *std.StringHashMap(Repository) {
+        return &self.__during_exec_deps;
     }
 
-    pub fn init(pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, intern_proto: anytype, extern_proto: anytype) !@This() {
-        var self = @This(){
-            .__intern = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
-            .__extern = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
+    fn getFromZon(self: @This(), key: []const u8) Repository {
+        return self.getFromZonDeps().get(key).?;
+    }
+
+    fn getDuringExec(self: @This(), key: []const u8) Repository {
+        return self.getDuringExecDeps().get(key).?;
+    }
+
+    fn getFromZonKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
+        return self.getFromZonDeps().keyIterator();
+    }
+
+    fn getDuringExecKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
+        return self.getDuringExecDeps().keyIterator();
+    }
+
+    fn init(comptime FromZon: type, comptime DuringExec: type, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
+        var self: @This() = .{
+            .__from_zon_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
+            .__during_exec_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
         };
-
-        const fetch = instance().ptrBuilder().option(bool, "fetch", "Update .references folder and build.zig.zon then stop execution") orelse false;
 
         var repository: Repository = undefined;
         inline for (.{
-            intern_proto, extern_proto,
+            from_zon_deps, during_exec_deps,
         }, &.{
-            "__intern", "__extern",
-        }) |proto, attr| {
-            inline for (@typeInfo(@TypeOf(proto)).@"struct".fields) |field| {
-                const proto_name = @field(proto, field.name).name;
-                const proto_host = @field(proto, field.name).host;
-                const proto_ref = @field(proto, field.name).ref;
-                const module_name = proto_name[std.mem.indexOfScalar(u8, proto_name, '/').? + 1 ..];
-                const fork = instance().ptrBuilder().option([]const u8, module_name, "Switch to the given branch from a given fork for the " ++ proto_name ++ " repository") orelse "";
-                const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0..i] else proto_name;
+            ptrFromZonDeps, ptrDuringExecDeps,
+        }) |@"struct", func| {
+            inline for (@typeInfo(@TypeOf(@"struct")).@"struct".fields) |field| {
+                const struct_name = @field(@"struct", field.name).name;
+                const struct_host = @field(@"struct", field.name).host;
+                const struct_ref = @field(@"struct", field.name).ref;
+                const fork = instance().getZonFork(field.name);
+                const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0..i] else struct_name;
                 const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else null;
-                repository = Repository.init(name, switch (proto_host) {
-                    .github => Repository.Github.url(name),
-                    .gitlab => Repository.Gitlab.url(@field(proto, field.name).domain, name),
-                }, null, proto_ref);
-                if (fetch) try repository.searchLatest(branch);
-                try @field(self, attr).put(field.name, repository);
+                repository = Repository.init(name, switch (struct_host) {
+                    .github => instance().ptrBuilder().fmt("https://github.com/{s}", .{
+                        name,
+                    }),
+                    .gitlab => instance().ptrBuilder().fmt("https://gitlab.{s}/{s}", .{
+                        @field(@"struct", field.name).domain, name,
+                    }),
+                }, null, struct_ref);
+                if (instance().getFetch()) try repository.searchLatest(branch);
+                try @call(.auto, func, .{
+                    &self,
+                }).put(field.name, repository);
             }
         }
 
-        if (fetch) {
-            try self.fetchExtern();
-            try self.fetchIntern(pkg, fingerprint, paths);
-            std.process.exit(0);
+        if (instance().getFetch()) {
+            try self.fetchDuringExecDeps();
+            try self.fetchFromZonDeps(pkg, fingerprint, paths);
+            return error.FetchDepsSucceed;
         }
 
         return self;
     }
 
-    pub fn clone(self: @This(), repo: []const u8, path: []const u8) !void {
-        switch (self.getExtern(repo).getRef()) {
+    fn clone(self: @This(), repo: []const u8, path: []const u8) !void {
+        switch (self.getDuringExec(repo).getRef()) {
             .tag => try instance().run(.{
                 .argv = &[_][]const u8{
-                    "git", "clone", "--branch", try reference(repo), "--depth", "1", "--", self.getExtern(repo).getUrl(), path,
+                    "git", "clone", "--branch", try reference(repo), "--depth", "1", "--", self.getDuringExec(repo).getUrl(), path,
                 },
             }),
             .commit => {
                 try instance().run(.{
                     .argv = &[_][]const u8{
-                        "git", "clone", "--", self.getExtern(repo).getUrl(), path,
+                        "git", "clone", "--", self.getDuringExec(repo).getUrl(), path,
                     },
                 });
                 try instance().run(.{
@@ -478,23 +563,23 @@ pub const Dependencies = struct {
         }
     }
 
-    fn fetchExtern(self: @This()) !void {
+    fn fetchDuringExecDeps(self: @This()) !void {
         var references_dir = try instance().getBuilder().build_root.handle.openDir(".references", .{});
         defer references_dir.close();
 
-        var it = self.getExterns();
+        var it = self.getDuringExecKeys();
         while (it.next()) |key| {
             try references_dir.deleteFile(key.*);
             try references_dir.writeFile(.{
                 .sub_path = key.*,
                 .data = instance().ptrBuilder().fmt("{s}\n", .{
-                    self.getExtern(key.*).getShortLatest(),
+                    self.getDuringExec(key.*).getShortLatest(),
                 }),
             });
         }
     }
 
-    fn fetchIntern(self: @This(), pkg: @Type(.enum_literal), fingerprint: []const u8, additional_paths: []const []const u8) !void {
+    fn fetchFromZonDeps(self: @This(), pkg: @Type(.enum_literal), fingerprint: []const u8, additional_paths: []const []const u8) !void {
         var buffer = std.ArrayList(u8).init(instance().getBuilder().allocator);
         const writer = buffer.writer();
 
@@ -539,10 +624,10 @@ pub const Dependencies = struct {
             .data = formatted,
         });
 
-        var it = self.getInterns();
+        var it = self.getFromZonKeys();
         while (it.next()) |key| {
             const url = instance().ptrBuilder().fmt("git+{s}#{s}", .{
-                self.getIntern(key.*).getUrl(), self.getIntern(key.*).getLatest(),
+                self.getFromZon(key.*).getUrl(), self.getFromZon(key.*).getLatest(),
             });
             try instance().run(.{
                 .argv = &[_][]const u8{
