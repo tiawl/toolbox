@@ -38,10 +38,13 @@ pub fn isInit() bool {
     return singleton != null;
 }
 
-pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon: FromZon, during_exec: DuringExec) !void {
+pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
     if (!isInit()) {
         singleton = undefined;
-        try singleton.?.init(FromZon, DuringExec, builder, mode, pkg, fingerprint, paths, from_zon, during_exec);
+        singleton.?.init(FromZon, DuringExec, builder, mode, pkg, fingerprint, paths, from_zon_deps, during_exec_deps) catch |err| switch (err) {
+            error.FetchDepsSucceed => std.process.exit(0),
+            else => return err,
+        };
     }
 }
 
@@ -92,7 +95,7 @@ const Toolbox = struct {
     __update: bool,
     __zon_forks: std.StringHashMap([]const u8),
 
-    fn init(self: *@This(), comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon: FromZon, during_exec: DuringExec) !void {
+    fn init(self: *@This(), comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
         self.* = .{
             .__builder = builder,
             .__mode = mode,
@@ -102,7 +105,7 @@ const Toolbox = struct {
             .__zon_forks = std.StringHashMap([]const u8).init(builder.allocator),
         };
 
-        self.__dependencies = try Dependencies.init(FromZon, DuringExec, pkg, fingerprint, paths, from_zon, during_exec);
+        self.__dependencies = try Dependencies.init(FromZon, DuringExec, pkg, fingerprint, paths, from_zon_deps, during_exec_deps);
 
         inline for (@typeInfo(FromZon).@"struct".fields) |field| {
             try self.addZonFork(field.name);
@@ -345,13 +348,13 @@ const Toolbox = struct {
     }
 };
 
-pub const Repository = struct {
-    pub const Host = enum {
+const Repository = struct {
+    const Host = enum {
         github,
         gitlab,
     };
 
-    pub const Reference = enum {
+    const Reference = enum {
         tag,
         commit,
     };
@@ -459,37 +462,53 @@ pub fn reference(repo: []const u8) ![]const u8 {
 }
 
 const Dependencies = struct {
-    __from_zon: std.StringHashMap(Repository),
-    __during_exec: std.StringHashMap(Repository),
+    __from_zon_deps: std.StringHashMap(Repository),
+    __during_exec_deps: std.StringHashMap(Repository),
+
+    fn getFromZonDeps(self: @This()) std.StringHashMap(Repository) {
+        return self.__from_zon_deps;
+    }
+
+    fn getDuringExecDeps(self: @This()) std.StringHashMap(Repository) {
+        return self.__during_exec_deps;
+    }
+
+    fn ptrFromZonDeps(self: *@This()) *std.StringHashMap(Repository) {
+        return &self.__from_zon_deps;
+    }
+
+    fn ptrDuringExecDeps(self: *@This()) *std.StringHashMap(Repository) {
+        return &self.__during_exec_deps;
+    }
 
     fn getFromZon(self: @This(), key: []const u8) Repository {
-        return self.__from_zon.get(key).?;
+        return self.getFromZonDeps().get(key).?;
     }
 
     fn getDuringExec(self: @This(), key: []const u8) Repository {
-        return self.__during_exec.get(key).?;
+        return self.getDuringExecDeps().get(key).?;
     }
 
     fn getFromZonKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
-        return self.__from_zon.keyIterator();
+        return self.getFromZonDeps().keyIterator();
     }
 
     fn getDuringExecKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
-        return self.__during_exec.keyIterator();
+        return self.getDuringExecDeps().keyIterator();
     }
 
-    fn init(comptime FromZon: type, comptime DuringExec: type, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon: FromZon, during_exec: DuringExec) !@This() {
+    fn init(comptime FromZon: type, comptime DuringExec: type, pkg: @Type(.enum_literal), fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
         var self: @This() = .{
-            .__from_zon = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
-            .__during_exec = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
+            .__from_zon_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
+            .__during_exec_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
         };
 
         var repository: Repository = undefined;
         inline for (.{
-            from_zon, during_exec,
+            from_zon_deps, during_exec_deps,
         }, &.{
-            "__from_zon", "__during_exec",
-        }) |@"struct", attr| {
+            ptrFromZonDeps, ptrDuringExecDeps,
+        }) |@"struct", func| {
             inline for (@typeInfo(@TypeOf(@"struct")).@"struct".fields) |field| {
                 const struct_name = @field(@"struct", field.name).name;
                 const struct_host = @field(@"struct", field.name).host;
@@ -506,14 +525,16 @@ const Dependencies = struct {
                     }),
                 }, null, struct_ref);
                 if (instance().getFetch()) try repository.searchLatest(branch);
-                try @field(self, attr).put(field.name, repository);
+                try @call(.auto, func, .{
+                    self,
+                }).put(field.name, repository);
             }
         }
 
         if (instance().getFetch()) {
-            try self.fetchDuringExec();
-            try self.fetchFromZon(pkg, fingerprint, paths);
-            std.process.exit(0);
+            try self.fetchDuringExecDeps();
+            try self.fetchFromZonDeps(pkg, fingerprint, paths);
+            return error.FetchDepsSucceed;
         }
 
         return self;
@@ -542,7 +563,7 @@ const Dependencies = struct {
         }
     }
 
-    fn fetchDuringExec(self: @This()) !void {
+    fn fetchDuringExecDeps(self: @This()) !void {
         var references_dir = try instance().getBuilder().build_root.handle.openDir(".references", .{});
         defer references_dir.close();
 
@@ -558,7 +579,7 @@ const Dependencies = struct {
         }
     }
 
-    fn fetchFromZon(self: @This(), pkg: @Type(.enum_literal), fingerprint: []const u8, additional_paths: []const []const u8) !void {
+    fn fetchFromZonDeps(self: @This(), pkg: @Type(.enum_literal), fingerprint: []const u8, additional_paths: []const []const u8) !void {
         var buffer = std.ArrayList(u8).init(instance().getBuilder().allocator);
         const writer = buffer.writer();
 
