@@ -34,31 +34,6 @@ pub fn Repositories(comptime tuple: anytype) type {
     });
 }
 
-var singleton: ?Toolbox = null;
-
-pub fn isInit() bool {
-    return singleton != null;
-}
-
-pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
-    if (!isInit()) {
-        singleton = undefined;
-        singleton.?.init(FromZon, DuringExec, builder, mode, pkg, fingerprint, paths, from_zon_deps, during_exec_deps) catch |err| switch (err) {
-            error.FetchDepsSucceed => std.process.exit(0),
-            else => return err,
-        };
-    }
-}
-
-pub fn deinit() void {
-    if (singleton) |*toolbox| toolbox.deinit();
-    singleton = null;
-}
-
-pub fn instance() *Toolbox {
-    return if (singleton) |*toolbox| toolbox else @panic("Toolbox not initialized");
-}
-
 pub fn isCSource(name: []const u8) bool {
     return std.mem.endsWith(u8, name, ".c");
 }
@@ -89,7 +64,7 @@ pub fn exists(path: []const u8) bool {
     return true;
 }
 
-const Toolbox = struct {
+pub const Toolbox = struct {
     __builder: *std.Build,
     __mode: std.builtin.OptimizeMode,
     __dependencies: Dependencies,
@@ -97,8 +72,8 @@ const Toolbox = struct {
     __update: bool,
     __zon_forks: std.StringHashMap([]const u8),
 
-    fn init(self: *@This(), comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !void {
-        self.* = .{
+    pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
+        var self: @This() = .{
             .__builder = builder,
             .__mode = mode,
             .__dependencies = undefined,
@@ -107,14 +82,19 @@ const Toolbox = struct {
             .__zon_forks = std.StringHashMap([]const u8).init(builder.allocator),
         };
 
-        self.__dependencies = try Dependencies.init(FromZon, DuringExec, pkg, fingerprint, paths, from_zon_deps, during_exec_deps);
+        self.__dependencies = Dependencies.init(FromZon, DuringExec, &self, pkg, fingerprint, paths, from_zon_deps, during_exec_deps) catch |err| switch (err) {
+            error.FetchDepsSucceed => std.process.exit(0),
+            else => return err,
+        };
 
         inline for (@typeInfo(FromZon).@"struct".fields) |field| {
             try self.addZonFork(field.name);
         }
+
+        return self;
     }
 
-    fn deinit(self: *@This()) void {
+    pub fn deinit(self: *@This()) void {
         self.ptrZonForks().deinit();
     }
 
@@ -124,6 +104,10 @@ const Toolbox = struct {
 
     pub fn getBuilder(self: @This()) *const std.Build {
         return self.__builder;
+    }
+
+    pub fn getAllocator(self: @This()) std.mem.Allocator {
+        return self.getBuilder().allocator;
     }
 
     fn getDependencies(self: @This()) Dependencies {
@@ -158,8 +142,8 @@ const Toolbox = struct {
         try self.ptrZonForks().put(key, self.ptrBuilder().option([]const u8, key, "Switch to the given branch from a given fork for the " ++ key ++ " repository") orelse "");
     }
 
-    pub fn clone(self: @This(), repo: EnumLiteral, path: []const u8) !void {
-        try self.getDependencies().clone(repo, path);
+    pub fn clone(self: *@This(), repo: EnumLiteral, path: []const u8) !void {
+        try self.getDependencies().clone(self, repo, path);
     }
 
     pub fn addHeader(self: @This(), lib: *std.Build.Step.Compile, source: []const u8, dest: []const u8, ext: []const []const u8) void {
@@ -248,11 +232,11 @@ const Toolbox = struct {
 
         if (self.getMode() == .Debug) {
             std.debug.print("\x1b[35m[{s}]\x1b[0m\n", .{
-                try std.mem.join(self.getBuilder().allocator, " ", proc.argv),
+                try std.mem.join(self.getAllocator(), " ", proc.argv),
             });
         }
 
-        var child = std.process.Child.init(proc.argv, self.getBuilder().allocator);
+        var child = std.process.Child.init(proc.argv, self.getAllocator());
 
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
@@ -267,7 +251,7 @@ const Toolbox = struct {
             wait();
             term = try child.kill();
         } else {
-            try child.collectOutput(self.getBuilder().allocator, &stdout, &stderr, std.math.maxInt(usize));
+            try child.collectOutput(self.getAllocator(), &stdout, &stderr, std.math.maxInt(usize));
             term = try child.wait();
         }
         const exit_success = std.process.Child.Term{
@@ -283,7 +267,7 @@ const Toolbox = struct {
         }
 
         if (proc.stdout) |out| {
-            out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.getBuilder().allocator), " \n");
+            out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.getAllocator()), " \n");
         } else if (self.getMode() == .Debug) {
             std.debug.print("{s}", .{
                 stdout.items,
@@ -303,7 +287,7 @@ const Toolbox = struct {
             });
             defer dir.close();
 
-            root_path = try self.getBuilder().build_root.join(self.getBuilder().allocator, &.{
+            root_path = try self.buildRootJoin(&.{
                 path,
             });
 
@@ -311,7 +295,7 @@ const Toolbox = struct {
             while (flag) {
                 flag = false;
 
-                walker = try dir.walk(self.getBuilder().allocator);
+                walker = try dir.walk(self.getAllocator());
                 defer walker.deinit();
 
                 walk: while (try walker.next()) |*entry| {
@@ -350,7 +334,7 @@ const Toolbox = struct {
     }
 
     pub fn buildRootJoin(self: @This(), paths: []const []const u8) ![]u8 {
-        return self.getBuilder().build_root.join(self.getBuilder().allocator, paths);
+        return self.getBuilder().build_root.join(self.getAllocator(), paths);
     }
 
     pub fn pathJoin(self: *@This(), paths: []const []const u8) []u8 {
@@ -363,6 +347,13 @@ const Toolbox = struct {
 
     pub fn dupe(self: *@This(), bytes: []const u8) []u8 {
         return self.ptrBuilder().dupe(bytes);
+    }
+
+    pub fn reference(self: *@This(), repo: EnumLiteral) ![]const u8 {
+        const path = try self.buildRootJoin(&.{
+            ".references", @tagName(repo),
+        });
+        return std.mem.trim(u8, try self.getBuilder().build_root.handle.readFileAlloc(self.getAllocator(), path, std.math.maxInt(usize)), " \n");
     }
 };
 
@@ -382,11 +373,11 @@ const Repository = struct {
     __latest: []const u8,
     __ref: Reference,
 
-    fn init(name: []const u8, url: []const u8, latest: ?[]const u8, ref: Reference) @This() {
+    fn init(toolbox: *Toolbox, name: []const u8, url: []const u8, latest: ?[]const u8, ref: Reference) @This() {
         return .{
-            .__name = instance().dupe(name),
-            .__url = instance().dupe(url),
-            .__latest = if (latest) |tag| instance().dupe(tag) else "",
+            .__name = toolbox.dupe(name),
+            .__url = toolbox.dupe(url),
+            .__latest = if (latest) |tag| toolbox.dupe(tag) else "",
             .__ref = ref,
         };
     }
@@ -422,28 +413,28 @@ const Repository = struct {
         };
     }
 
-    fn searchLatest(self: *@This(), branch_opt: ?[]const u8) !void {
+    fn searchLatest(self: *@This(), toolbox: *Toolbox, branch_opt: ?[]const u8) !void {
         var tmp_dir = std.testing.tmpDir(.{});
         defer tmp_dir.cleanup();
-        const tmp = try tmp_dir.dir.realpathAlloc(instance().getBuilder().allocator, ".");
+        const tmp = try tmp_dir.dir.realpathAlloc(toolbox.getAllocator(), ".");
 
-        try instance().run(.{
+        try toolbox.run(.{
             .argv = if (branch_opt) |branch| &[_][]const u8{
                 "git", "clone", "--bare", "--branch", branch, "--filter=blob:none", "--", self.getUrl(), &tmp_dir.sub_path,
             } else &[_][]const u8{
                 "git", "clone", "--bare", "--filter=blob:none", "--", self.getUrl(), &tmp_dir.sub_path,
             },
-            .cwd = try tmp_dir.parent_dir.realpathAlloc(instance().getBuilder().allocator, "."),
+            .cwd = try tmp_dir.parent_dir.realpathAlloc(toolbox.getAllocator(), "."),
         });
 
         switch (self.getRef()) {
-            .commit => try self.searchLatestCommit(tmp),
-            .tag => try self.searchLatestTag(tmp),
+            .commit => try self.searchLatestCommit(toolbox, tmp),
+            .tag => try self.searchLatestTag(toolbox, tmp),
         }
     }
 
-    fn searchLatestCommit(self: *@This(), tmp: []const u8) !void {
-        try instance().run(.{
+    fn searchLatestCommit(self: *@This(), toolbox: *Toolbox, tmp: []const u8) !void {
+        try toolbox.run(.{
             .argv = &[_][]const u8{
                 "git", "rev-parse", "HEAD",
             },
@@ -452,13 +443,13 @@ const Repository = struct {
         });
     }
 
-    fn searchLatestTag(self: *@This(), tmp: []const u8) !void {
+    fn searchLatestTag(self: *@This(), toolbox: *Toolbox, tmp: []const u8) !void {
         var commit: []const u8 = undefined;
         for (0..std.math.maxInt(usize)) |i| {
-            commit = instance().fmt("HEAD~{}", .{
+            commit = toolbox.fmt("HEAD~{}", .{
                 i,
             });
-            try instance().run(.{
+            try toolbox.run(.{
                 .argv = &[_][]const u8{
                     "git", "describe", "--tags", "--exact-match", commit,
                 },
@@ -471,13 +462,6 @@ const Repository = struct {
         } else return error.NoValidTag;
     }
 };
-
-pub fn reference(repo: EnumLiteral) ![]const u8 {
-    const path = try instance().getBuilder().build_root.join(instance().getBuilder().allocator, &.{
-        ".references", @tagName(repo),
-    });
-    return std.mem.trim(u8, try instance().getBuilder().build_root.handle.readFileAlloc(instance().getBuilder().allocator, path, std.math.maxInt(usize)), " \n");
-}
 
 const Dependencies = struct {
     __from_zon_deps: std.StringHashMap(Repository),
@@ -515,10 +499,10 @@ const Dependencies = struct {
         return self.getDuringExecDeps().keyIterator();
     }
 
-    fn init(comptime FromZon: type, comptime DuringExec: type, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
+    fn init(comptime FromZon: type, comptime DuringExec: type, toolbox: *Toolbox, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
         var self: @This() = .{
-            .__from_zon_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
-            .__during_exec_deps = std.StringHashMap(Repository).init(instance().getBuilder().allocator),
+            .__from_zon_deps = std.StringHashMap(Repository).init(toolbox.getAllocator()),
+            .__during_exec_deps = std.StringHashMap(Repository).init(toolbox.getAllocator()),
         };
 
         var repository: Repository = undefined;
@@ -531,49 +515,49 @@ const Dependencies = struct {
                 const struct_name = @field(@"struct", field.name).name;
                 const struct_host = @field(@"struct", field.name).host;
                 const struct_ref = @field(@"struct", field.name).ref;
-                const fork = instance().getZonFork(field.name);
+                const fork = toolbox.getZonFork(field.name);
                 const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0..i] else struct_name;
                 const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else null;
-                repository = Repository.init(name, switch (struct_host) {
-                    .github => instance().fmt("https://github.com/{s}", .{
+                repository = Repository.init(toolbox, name, switch (struct_host) {
+                    .github => toolbox.fmt("https://github.com/{s}", .{
                         name,
                     }),
-                    .gitlab => instance().fmt("https://gitlab.{s}/{s}", .{
+                    .gitlab => toolbox.fmt("https://gitlab.{s}/{s}", .{
                         @field(@"struct", field.name).domain, name,
                     }),
                 }, null, struct_ref);
-                if (instance().getFetch()) try repository.searchLatest(branch);
+                if (toolbox.getFetch()) try repository.searchLatest(toolbox, branch);
                 try @call(.auto, func, .{
                     &self,
                 }).put(field.name, repository);
             }
         }
 
-        if (instance().getFetch()) {
-            try self.fetchDuringExecDeps();
-            try self.fetchFromZonDeps(pkg, fingerprint, paths);
+        if (toolbox.getFetch()) {
+            try self.fetchDuringExecDeps(toolbox);
+            try self.fetchFromZonDeps(toolbox, pkg, fingerprint, paths);
             return error.FetchDepsSucceed;
         }
 
         return self;
     }
 
-    fn clone(self: @This(), repo: EnumLiteral, path: []const u8) !void {
+    fn clone(self: @This(), toolbox: *Toolbox, repo: EnumLiteral, path: []const u8) !void {
         switch (self.getDuringExec(@tagName(repo)).getRef()) {
-            .tag => try instance().run(.{
+            .tag => try toolbox.run(.{
                 .argv = &[_][]const u8{
-                    "git", "clone", "--branch", try reference(repo), "--depth", "1", "--", self.getDuringExec(@tagName(repo)).getUrl(), path,
+                    "git", "clone", "--branch", try toolbox.reference(repo), "--depth", "1", "--", self.getDuringExec(@tagName(repo)).getUrl(), path,
                 },
             }),
             .commit => {
-                try instance().run(.{
+                try toolbox.run(.{
                     .argv = &[_][]const u8{
                         "git", "clone", "--", self.getDuringExec(@tagName(repo)).getUrl(), path,
                     },
                 });
-                try instance().run(.{
+                try toolbox.run(.{
                     .argv = &[_][]const u8{
-                        "git", "checkout", try reference(repo),
+                        "git", "checkout", try toolbox.reference(repo),
                     },
                     .cwd = path,
                 });
@@ -581,8 +565,8 @@ const Dependencies = struct {
         }
     }
 
-    fn fetchDuringExecDeps(self: @This()) !void {
-        var references_dir = try instance().getBuilder().build_root.handle.openDir(".references", .{});
+    fn fetchDuringExecDeps(self: @This(), toolbox: *Toolbox) !void {
+        var references_dir = try toolbox.getBuilder().build_root.handle.openDir(".references", .{});
         defer references_dir.close();
 
         var it = self.getDuringExecKeys();
@@ -590,15 +574,15 @@ const Dependencies = struct {
             try references_dir.deleteFile(key.*);
             try references_dir.writeFile(.{
                 .sub_path = key.*,
-                .data = instance().fmt("{s}\n", .{
+                .data = toolbox.fmt("{s}\n", .{
                     self.getDuringExec(key.*).getShortLatest(),
                 }),
             });
         }
     }
 
-    fn fetchFromZonDeps(self: @This(), pkg: EnumLiteral, fingerprint: []const u8, additional_paths: []const []const u8) !void {
-        var buffer = std.ArrayList(u8).init(instance().getBuilder().allocator);
+    fn fetchFromZonDeps(self: @This(), toolbox: *Toolbox, pkg: EnumLiteral, fingerprint: []const u8, additional_paths: []const []const u8) !void {
+        var buffer = std.ArrayList(u8).init(toolbox.getAllocator());
         const writer = buffer.writer();
 
         try writer.print(
@@ -613,7 +597,7 @@ const Dependencies = struct {
             '{', pkg, builtin.zig_version.major, builtin.zig_version.minor, fingerprint, '{',
         });
 
-        var build_dir = try instance().getBuilder().build_root.handle.openDir(".", .{
+        var build_dir = try toolbox.getBuilder().build_root.handle.openDir(".", .{
             .iterate = true,
         });
         defer build_dir.close();
@@ -633,21 +617,21 @@ const Dependencies = struct {
         try buffer.append(0);
         const source = buffer.items[0 .. buffer.items.len - 1 :0];
 
-        const validated = try std.zig.Ast.parse(instance().getBuilder().allocator, source, .zon);
-        const formatted = try validated.render(instance().getBuilder().allocator);
+        const validated = try std.zig.Ast.parse(toolbox.getAllocator(), source, .zon);
+        const formatted = try validated.render(toolbox.getAllocator());
 
-        try instance().getBuilder().build_root.handle.deleteFile("build.zig.zon");
-        try instance().getBuilder().build_root.handle.writeFile(.{
+        try toolbox.getBuilder().build_root.handle.deleteFile("build.zig.zon");
+        try toolbox.getBuilder().build_root.handle.writeFile(.{
             .sub_path = "build.zig.zon",
             .data = formatted,
         });
 
         var it = self.getFromZonKeys();
         while (it.next()) |key| {
-            const url = instance().fmt("git+{s}#{s}", .{
+            const url = toolbox.fmt("git+{s}#{s}", .{
                 self.getFromZon(key.*).getUrl(), self.getFromZon(key.*).getLatest(),
             });
-            try instance().run(.{
+            try toolbox.run(.{
                 .argv = &[_][]const u8{
                     "zig", "fetch", "--save", url,
                 },

@@ -1,7 +1,7 @@
 .{
     .name = .toolbox,
     .fingerprint = 0xe193afc6e02e1091, // Changing this has security and trust implications.
-    .version = "1.12.0",
+    .version = "1.12.2",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{},
     .paths = .{
