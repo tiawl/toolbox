@@ -71,6 +71,7 @@ pub const Toolbox = struct {
     __fetch: bool,
     __update: bool,
     __zon_forks: std.StringHashMap([]const u8),
+    __logging: bool,
 
     pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
         var self: @This() = .{
@@ -79,6 +80,7 @@ pub const Toolbox = struct {
             .__dependencies = undefined,
             .__fetch = builder.option(bool, "fetch", "Update .references folder and build.zig.zon then stop execution") orelse false,
             .__update = builder.option(bool, "update", "Update binding") orelse false,
+            .__logging = builder.option(bool, "toolbox-logging", "Enabled toolbox debug logging") orelse false,
             .__zon_forks = std.StringHashMap([]const u8).init(builder.allocator),
         };
 
@@ -100,6 +102,10 @@ pub const Toolbox = struct {
 
     fn getMode(self: @This()) std.builtin.OptimizeMode {
         return self.__mode;
+    }
+
+    fn loggingEnabled(self: @This()) bool {
+        return self.__logging;
     }
 
     pub fn getBuilder(self: @This()) *const std.Build {
@@ -147,7 +153,7 @@ pub const Toolbox = struct {
     }
 
     pub fn addHeader(self: @This(), lib: *std.Build.Step.Compile, source: []const u8, dest: []const u8, ext: []const []const u8) void {
-        if (self.getMode() == .Debug) {
+        if (self.loggingEnabled()) {
             std.debug.print("[{s} header] {s}\n", .{
                 lib.name, source,
             });
@@ -161,7 +167,7 @@ pub const Toolbox = struct {
 
     pub fn addInclude(self: *@This(), lib: *std.Build.Step.Compile, path: []const u8) void {
         const lazy = self.ptrBuilder().path(path);
-        if (self.getMode() == .Debug) {
+        if (self.loggingEnabled()) {
             std.debug.print("[{s} include] {s}\n", .{
                 lib.name, lazy.getPath(self.ptrBuilder()),
             });
@@ -173,7 +179,7 @@ pub const Toolbox = struct {
         const source_path = self.pathJoin(&.{
             root_path, base_path,
         });
-        if (self.getMode() == .Debug) {
+        if (self.loggingEnabled()) {
             std.debug.print("[{s} source] {s}\n", .{
                 lib.name, source_path,
             });
@@ -187,7 +193,7 @@ pub const Toolbox = struct {
     }
 
     pub fn write(self: @This(), path: []const u8, name: []const u8, content: []const u8) !void {
-        if (self.getMode() == .Debug) {
+        if (self.loggingEnabled()) {
             std.debug.print("[write {s}/{s}]\n", .{
                 path, name,
             });
@@ -201,7 +207,7 @@ pub const Toolbox = struct {
     }
 
     pub fn make(self: @This(), path: []const u8) !void {
-        if (self.getMode() == .Debug) {
+        if (self.loggingEnabled()) {
             std.debug.print("[make {s}]\n", .{
                 path,
             });
@@ -211,7 +217,7 @@ pub const Toolbox = struct {
     }
 
     pub fn copy(self: @This(), src: []const u8, dest: []const u8) !void {
-        if (self.getMode() == .Debug) {
+        if (self.loggingEnabled()) {
             std.debug.print("[copy {s} {s}]\n", .{
                 src, dest,
             });
@@ -268,7 +274,7 @@ pub const Toolbox = struct {
 
         if (proc.stdout) |out| {
             out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.getAllocator()), " \n");
-        } else if (self.getMode() == .Debug) {
+        } else if (self.loggingEnabled()) {
             std.debug.print("{s}", .{
                 stdout.items,
             });
@@ -309,7 +315,7 @@ pub const Toolbox = struct {
                             if (isSource(entry.basename) or
                                 isHeader(entry.basename)) continue :walk;
                             try std.fs.deleteFileAbsolute(entry_abspath);
-                            if (self.getMode() == .Debug) {
+                            if (self.loggingEnabled()) {
                                 std.debug.print("[clean] {s}\n", .{
                                     entry_abspath,
                                 });
@@ -319,7 +325,7 @@ pub const Toolbox = struct {
                         .directory => {
                             std.fs.deleteDirAbsolute(entry_abspath) catch |err|
                                 if (err == error.DirNotEmpty) continue :walk else return err;
-                            if (self.getMode() == .Debug) {
+                            if (self.loggingEnabled()) {
                                 std.debug.print("[clean] {s}\n", .{
                                     entry_abspath,
                                 });
