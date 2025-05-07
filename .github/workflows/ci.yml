@@ -5,17 +5,12 @@ on:
     branches:
       - trunk
 
-env:
-  ZIG_VERSION: "0.14.0"
-
 jobs:
   linter:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: mlugg/setup-zig@v1
-      with:
-        version: ${{ env.ZIG_VERSION }}
+    - uses: mlugg/setup-zig@v2
     - name: Check zig is canonical
       shell: bash
       run: |
@@ -32,15 +27,10 @@ jobs:
           - spirv
           - glslang
           - shaderc
-          - oniguruma
-          - libjq
     runs-on: ubuntu-latest
     steps:
     - name: Setup Zig
-      uses: mlugg/setup-zig@v1
-      with:
-        version: ${{ env.ZIG_VERSION }}
-
+      uses: mlugg/setup-zig@v2
     - name: Install packages
       env:
         REPO: "${{ matrix.repo }}"
