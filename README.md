@@ -23,8 +23,6 @@ These repositories are automatically updated when a new release is available:
 * [tiawl/spirv.zig][8]
 * [tiawl/glslang.zig][9]
 * [tiawl/shaderc.zig][10]
-* [tiawl/oniguruma.zig][12]
-* [tiawl/libjq.zig][11]
 
 ## License
 
@@ -40,5 +38,3 @@ This repository is dedicated to the public domain. See the LICENSE file for more
 [8]:https://github.com/tiawl/spirv.zig
 [9]:https://github.com/tiawl/glslang.zig
 [10]:https://github.com/tiawl/shaderc.zig
-[11]:https://github.com/tiawl/libjq.zig
-[12]:https://github.com/tiawl/oniguruma.zig
