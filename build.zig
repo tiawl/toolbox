@@ -8,6 +8,7 @@ const FetchTarget = struct {
     domain: []const u8 = "",
     host: Repository.Host,
     ref: Repository.Reference,
+    branch: []const u8 = "",
 };
 
 pub fn Repositories(comptime tuple: anytype) type {
@@ -521,9 +522,10 @@ const Dependencies = struct {
                 const struct_name = @field(@"struct", field.name).name;
                 const struct_host = @field(@"struct", field.name).host;
                 const struct_ref = @field(@"struct", field.name).ref;
+                const struct_branch = @field(@"struct", field.name).branch;
                 const fork = toolbox.getZonFork(field.name);
                 const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0..i] else struct_name;
-                const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else null;
+                const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else if (struct_branch.len > 0) struct_branch else null;
                 repository = Repository.init(toolbox, name, switch (struct_host) {
                     .github => toolbox.fmt("https://github.com/{s}", .{
                         name,
