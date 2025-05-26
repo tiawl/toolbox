@@ -597,12 +597,12 @@ const Dependencies = struct {
             \\.{c}
             \\    .name = {},
             \\    .version = "1.0.0",
-            \\    .minimum_zig_version = "{}.{}.0",
+            \\    .minimum_zig_version = "{}.{}.{}",
             \\    .fingerprint = {s},
             \\    .paths = .{c}
             \\
         , .{
-            '{', pkg, builtin.zig_version.major, builtin.zig_version.minor, fingerprint, '{',
+            '{', pkg, builtin.zig_version.major, builtin.zig_version.minor, builtin.zig_version.patch, fingerprint, '{',
         });
 
         var build_dir = try toolbox.getBuilder().build_root.handle.openDir(".", .{
