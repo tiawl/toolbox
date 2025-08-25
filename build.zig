@@ -590,10 +590,9 @@ const Dependencies = struct {
     }
 
     fn fetchFromZonDeps(self: @This(), toolbox: *Toolbox, pkg: EnumLiteral, fingerprint: []const u8, additional_paths: []const []const u8) !void {
-        var buffer = std.ArrayList(u8).init(toolbox.getAllocator());
-        const writer = buffer.writer();
+        var buffer: std.ArrayList(u8) = .empty;
 
-        try writer.print(
+        try buffer.print(toolbox.getAllocator(),
             \\.{c}
             \\    .name = {},
             \\    .version = "1.0.0",
@@ -610,23 +609,23 @@ const Dependencies = struct {
         });
         defer build_dir.close();
 
-        try writer.print("\"build.zig\",\n\"build.zig.zon\",\n", .{});
+        try buffer.print(toolbox.getAllocator(), "\"build.zig\",\n\"build.zig.zon\",\n", .{});
 
         for (additional_paths) |path| {
-            try writer.print("\"{s}\",\n", .{
+            try buffer.print(toolbox.getAllocator(), "\"{s}\",\n", .{
                 path,
             });
         }
 
-        try writer.print("{c},\n{c}\n", .{
+        try buffer.print(toolbox.getAllocator(), "{c},\n{c}\n", .{
             '}', '}',
         });
 
-        try buffer.append(0);
+        try buffer.append(toolbox.getAllocator(), 0);
         const source = buffer.items[0 .. buffer.items.len - 1 :0];
 
         const validated = try std.zig.Ast.parse(toolbox.getAllocator(), source, .zon);
-        const formatted = try validated.render(toolbox.getAllocator());
+        const formatted = try validated.renderAlloc(toolbox.getAllocator());
 
         try toolbox.getBuilder().build_root.handle.deleteFile("build.zig.zon");
         try toolbox.getBuilder().build_root.handle.writeFile(.{
