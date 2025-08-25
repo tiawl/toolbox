@@ -621,7 +621,7 @@ const Dependencies = struct {
             '}', '}',
         });
 
-        try buffer.append(0);
+        try buffer.append(toolbox.getAllocator(), 0);
         const source = buffer.items[0 .. buffer.items.len - 1 :0];
 
         const validated = try std.zig.Ast.parse(toolbox.getAllocator(), source, .zon);
