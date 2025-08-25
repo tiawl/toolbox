@@ -590,7 +590,7 @@ const Dependencies = struct {
     }
 
     fn fetchFromZonDeps(self: @This(), toolbox: *Toolbox, pkg: EnumLiteral, fingerprint: []const u8, additional_paths: []const []const u8) !void {
-        var buffer: std.ArrayList(u8) = .init;
+        var buffer: std.ArrayList(u8) = .empty;
 
         try buffer.print(toolbox.getAllocator(),
             \\.{c}
