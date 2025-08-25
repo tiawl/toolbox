@@ -625,7 +625,7 @@ const Dependencies = struct {
         const source = buffer.items[0 .. buffer.items.len - 1 :0];
 
         const validated = try std.zig.Ast.parse(toolbox.getAllocator(), source, .zon);
-        const formatted = try validated.render(toolbox.getAllocator());
+        const formatted = try validated.renderAlloc(toolbox.getAllocator());
 
         try toolbox.getBuilder().build_root.handle.deleteFile("build.zig.zon");
         try toolbox.getBuilder().build_root.handle.writeFile(.{
