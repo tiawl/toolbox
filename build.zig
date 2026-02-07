@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const EnumLiteral = @Type(.enum_literal);
+const EnumLiteral = @EnumLiteral();
 
 const FetchTarget = struct {
     name: []const u8,
@@ -13,26 +13,35 @@ const FetchTarget = struct {
 
 pub fn Repositories(comptime tuple: anytype) type {
     std.debug.assert(@typeInfo(@TypeOf(tuple)).@"struct".is_tuple);
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = blk: {
-                var fields: [tuple.len]std.builtin.Type.StructField = undefined;
-                for (tuple, 0..) |literal, i| {
-                    fields[i] = .{
-                        .name = @tagName(literal),
-                        .type = FetchTarget,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = if (@sizeOf(FetchTarget) > 0) @alignOf(FetchTarget) else 0,
-                    };
-                }
-                break :blk &fields;
-            },
-            .decls = &.{},
-            .is_tuple = false,
+    return @Struct(
+        .auto,
+        null,
+        blk_names: {
+            var names: [tuple.len][]const u8 = undefined;
+            for (tuple, 0..) |literal, i| {
+                names[i] = @tagName(literal);
+            }
+            break :blk_names &names;
         },
-    });
+        blk_types: {
+            var types: [tuple.len]type = undefined;
+            for (0..tuple.len) |i| {
+                types[i] = FetchTarget;
+            }
+            break :blk_types &types;
+        },
+        blk_attrs: {
+            var attrs: [tuple.len]std.builtin.Type.StructField.Attributes = undefined;
+            for (0..tuple.len) |i| {
+                attrs[i] = .{
+                    .default_value_ptr = null,
+                    .@"comptime" = false,
+                    .@"align" = if (@sizeOf(FetchTarget) > 0) @alignOf(FetchTarget) else 0,
+                };
+            }
+            break :blk_attrs &attrs;
+        },
+    );
 }
 
 pub fn isCSource(name: []const u8) bool {
@@ -59,9 +68,9 @@ pub fn isHeader(name: []const u8) bool {
     return isCHeader(name) or isCppHeader(name);
 }
 
-pub fn exists(path: []const u8) bool {
+pub fn exists(io: std.Io, path: []const u8) bool {
     if (path.len == 0) return false;
-    std.fs.accessAbsolute(path, .{}) catch return false;
+    std.Io.Dir.accessAbsolute(io, path, .{}) catch return false;
     return true;
 }
 
@@ -117,6 +126,10 @@ pub const Toolbox = struct {
         return self.getBuilder().allocator;
     }
 
+    pub fn getIo(self: @This()) std.Io {
+        return self.getBuilder().graph.io;
+    }
+
     fn getDependencies(self: @This()) Dependencies {
         return self.__dependencies;
     }
@@ -159,11 +172,11 @@ pub const Toolbox = struct {
                 lib.name, source,
             });
         }
-        lib.installHeadersDirectory(.{
-            .cwd_relative = source,
-        }, dest, .{
-            .include_extensions = ext,
-        });
+        lib.installHeadersDirectory(
+            .{ .cwd_relative = source },
+            dest,
+            .{ .include_extensions = ext },
+        );
     }
 
     pub fn addInclude(self: *@This(), lib: *std.Build.Step.Compile, path: []const u8) void {
@@ -173,7 +186,7 @@ pub const Toolbox = struct {
                 lib.name, lazy.getPath(self.ptrBuilder()),
             });
         }
-        lib.addIncludePath(lazy);
+        lib.root_module.addIncludePath(lazy);
     }
 
     pub fn addSource(self: *@This(), lib: *std.Build.Step.Compile, root_path: []const u8, base_path: []const u8, flags: []const []const u8) !void {
@@ -185,7 +198,7 @@ pub const Toolbox = struct {
                 lib.name, source_path,
             });
         }
-        lib.addCSourceFile(.{
+        lib.root_module.addCSourceFile(.{
             .file = .{
                 .cwd_relative = source_path,
             },
@@ -199,9 +212,9 @@ pub const Toolbox = struct {
                 path, name,
             });
         }
-        var dir = try std.fs.openDirAbsolute(path, .{});
-        defer dir.close();
-        try dir.writeFile(.{
+        var dir = try std.Io.Dir.openDirAbsolute(self.getIo(), path, .{});
+        defer dir.close(self.getIo());
+        try dir.writeFile(self.getIo(), .{
             .sub_path = name,
             .data = content,
         });
@@ -213,7 +226,7 @@ pub const Toolbox = struct {
                 path,
             });
         }
-        std.fs.makeDirAbsolute(path) catch |err|
+        std.Io.Dir.createDirAbsolute(self.getIo(), path, .default_dir) catch |err|
             if (err != error.PathAlreadyExists) return err;
     }
 
@@ -223,19 +236,21 @@ pub const Toolbox = struct {
                 src, dest,
             });
         }
-        try std.fs.copyFileAbsolute(src, dest, .{});
+        try std.Io.Dir.copyFileAbsolute(src, dest, self.getIo(), .{});
     }
 
     pub fn run(self: @This(), proc: struct {
         argv: []const []const u8,
-        cwd: ?[]const u8 = null,
-        env: ?*const std.process.EnvMap = null,
+        cwd: std.process.Child.Cwd = .inherit,
+        env: ?*const std.process.Environ.Map = null,
         wait: ?*const fn () void = null,
         stdout: ?*[]const u8 = null,
         ignore_errors: bool = false,
     }) !void {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
+        var stdout: std.ArrayList(u8) = .empty;
+        var stderr: std.ArrayList(u8) = .empty;
+        var stdout_buf: [8092]u8 = undefined;
+        var stderr_buf: [8092]u8 = undefined;
 
         if (self.getMode() == .Debug) {
             std.debug.print("\x1b[35m[{s}]\x1b[0m\n", .{
@@ -243,26 +258,40 @@ pub const Toolbox = struct {
             });
         }
 
-        var child = std.process.Child.init(proc.argv, self.getAllocator());
+        // var child = std.process.Child.init(proc.argv, self.getAllocator());
+        const spawn_options: std.process.SpawnOptions = .{
+            .argv = proc.argv,
+            .stdin = .ignore,
+            .stdout = .pipe,
+            .stderr = .pipe,
+            .cwd = proc.cwd,
+            .environ_map = proc.env,
+        };
 
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-        child.cwd = proc.cwd;
-        child.env_map = proc.env;
+        // child.stdin_behavior = .Ignore;
+        // child.stdout_behavior = .Pipe;
+        // child.stderr_behavior = .Pipe;
+        // child.cwd = proc.cwd;
+        // child.env_map = proc.env;
 
-        try child.spawn();
+        var child = try std.process.spawn(self.getIo(), spawn_options);
+        var stdout_reader = child.stdout.?.reader(self.getIo(), &stdout_buf).interface;
+        var stderr_reader = child.stderr.?.reader(self.getIo(), &stderr_buf).interface;
 
         var term: std.process.Child.Term = undefined;
         if (proc.wait) |wait| {
             wait();
-            term = try child.kill();
+            child.kill(self.getIo());
         } else {
-            try child.collectOutput(self.getAllocator(), &stdout, &stderr, std.math.maxInt(usize));
-            term = try child.wait();
+            // try child.collectOutput(self.getAllocator(), &stdout, &stderr, std.math.maxInt(usize));
+
+            try stdout_reader.appendRemaining(self.getAllocator(), &stdout, .unlimited);
+            try stderr_reader.appendRemaining(self.getAllocator(), &stderr, .unlimited);
+
+            term = try child.wait(self.getIo());
         }
         const exit_success = std.process.Child.Term{
-            .Exited = 0,
+            .exited = 0,
         };
         if (!proc.ignore_errors and stderr.items.len > 0 and !std.meta.eql(term, exit_success)) {
             std.debug.print("\x1b[31m{s}\x1b[0m", .{
@@ -284,15 +313,15 @@ pub const Toolbox = struct {
 
     pub fn clean(self: *@This(), paths: []const []const u8, extensions: []const []const u8) !void {
         var flag: bool = undefined;
-        var dir: std.fs.Dir = undefined;
+        var dir: std.Io.Dir = undefined;
         var root_path: []const u8 = undefined;
-        var walker: std.fs.Dir.Walker = undefined;
+        var walker: std.Io.Dir.Walker = undefined;
 
         for (paths) |path| {
-            dir = try self.getBuilder().build_root.handle.openDir(path, .{
+            dir = try self.getBuilder().build_root.handle.openDir(self.getIo(), path, .{
                 .iterate = true,
             });
-            defer dir.close();
+            defer dir.close(self.getIo());
 
             root_path = try self.buildRootJoin(&.{
                 path,
@@ -305,7 +334,7 @@ pub const Toolbox = struct {
                 walker = try dir.walk(self.getAllocator());
                 defer walker.deinit();
 
-                walk: while (try walker.next()) |*entry| {
+                walk: while (try walker.next(self.getIo())) |*entry| {
                     const entry_abspath = self.pathJoin(&.{
                         root_path, entry.path,
                     });
@@ -315,7 +344,7 @@ pub const Toolbox = struct {
                                 if (std.mem.endsWith(u8, entry.basename, ext)) continue :walk;
                             if (isSource(entry.basename) or
                                 isHeader(entry.basename)) continue :walk;
-                            try std.fs.deleteFileAbsolute(entry_abspath);
+                            try std.Io.Dir.deleteFileAbsolute(self.getIo(), entry_abspath);
                             if (self.loggingEnabled()) {
                                 std.debug.print("[clean] {s}\n", .{
                                     entry_abspath,
@@ -324,7 +353,7 @@ pub const Toolbox = struct {
                             flag = true;
                         },
                         .directory => {
-                            std.fs.deleteDirAbsolute(entry_abspath) catch |err|
+                            std.Io.Dir.deleteDirAbsolute(self.getIo(), entry_abspath) catch |err|
                                 if (err == error.DirNotEmpty) continue :walk else return err;
                             if (self.loggingEnabled()) {
                                 std.debug.print("[clean] {s}\n", .{
@@ -360,7 +389,7 @@ pub const Toolbox = struct {
         const path = try self.buildRootJoin(&.{
             ".references", @tagName(repo),
         });
-        return std.mem.trim(u8, try self.getBuilder().build_root.handle.readFileAlloc(self.getAllocator(), path, std.math.maxInt(usize)), " \n");
+        return std.mem.trim(u8, try self.getBuilder().build_root.handle.readFileAlloc(self.getIo(), path, self.getAllocator(), .unlimited), " \n");
     }
 };
 
@@ -421,17 +450,31 @@ const Repository = struct {
     }
 
     fn searchLatest(self: *@This(), toolbox: *Toolbox, branch_opt: ?[]const u8) !void {
-        var tmp_dir = std.testing.tmpDir(.{});
-        defer tmp_dir.cleanup();
-        const tmp = try tmp_dir.dir.realpathAlloc(toolbox.getAllocator(), ".");
+        // var tmp_dir = std.testing.tmpDir(.{});
+        // defer tmp_dir.cleanup();
+        var tempFiles = toolbox.ptrBuilder().addTempFiles();
+        const tmp = tempFiles.getDirectory().getDisplayName();
+
+        const cwd = std.Io.Dir.cwd();
+        var cache_dir = try cwd.openDir(toolbox.getIo(), ".zig-cache", .{});
+        // createDirPathOpen(toolbox.getIo(), ".zig-cache", .{}) catch
+        // @panic("unable to make tmp dir for testing: unable to make and open .zig-cache dir");
+        defer cache_dir.close(toolbox.getIo());
+        const parent_dir = try cache_dir.openDir(toolbox.getIo(), "tmp", .{});
+        // catch @panic("unable to make tmp dir for testing: unable to make and open .zig-cache/tmp dir");
+
+        // const tmp = try tmp_dir.dir.realPathFileAlloc(toolbox.getIo(), ".", toolbox.getAllocator());
 
         try toolbox.run(.{
             .argv = if (branch_opt) |branch| &[_][]const u8{
-                "git", "clone", "--bare", "--branch", branch, "--filter=blob:none", "--", self.getUrl(), &tmp_dir.sub_path,
+                "git", "clone", "--bare", "--branch", branch, "--filter=blob:none", "--", self.getUrl(), tmp,
             } else &[_][]const u8{
-                "git", "clone", "--bare", "--filter=blob:none", "--", self.getUrl(), &tmp_dir.sub_path,
+                "git", "clone", "--bare", "--filter=blob:none", "--", self.getUrl(), tmp,
             },
-            .cwd = try tmp_dir.parent_dir.realpathAlloc(toolbox.getAllocator(), "."),
+            // .cwd = try tmp_dir.parent_dir.realPathFileAlloc(toolbox.getIo(), ".", toolbox.getAllocator()),
+            .cwd = .{
+                .path = try parent_dir.realPathFileAlloc(toolbox.getIo(), ".", toolbox.getAllocator()),
+            }
         });
 
         switch (self.getRef()) {
@@ -445,7 +488,9 @@ const Repository = struct {
             .argv = &[_][]const u8{
                 "git", "rev-parse", "HEAD",
             },
-            .cwd = tmp,
+            .cwd = .{
+                .path = tmp,
+            },
             .stdout = self.ptrLatest(),
         });
     }
@@ -460,7 +505,9 @@ const Repository = struct {
                 .argv = &[_][]const u8{
                     "git", "describe", "--tags", "--exact-match", commit,
                 },
-                .cwd = tmp,
+                .cwd = .{
+                    .path = tmp,
+                },
                 .stdout = self.ptrLatest(),
                 .ignore_errors = true,
             });
@@ -567,20 +614,22 @@ const Dependencies = struct {
                     .argv = &[_][]const u8{
                         "git", "checkout", try toolbox.reference(repo),
                     },
-                    .cwd = path,
+                    .cwd = .{
+                        .path = path,
+                    },
                 });
             },
         }
     }
 
     fn fetchDuringExecDeps(self: @This(), toolbox: *Toolbox) !void {
-        var references_dir = try toolbox.getBuilder().build_root.handle.openDir(".references", .{});
-        defer references_dir.close();
+        var references_dir = try toolbox.getBuilder().build_root.handle.openDir(toolbox.getIo(), ".references", .{});
+        defer references_dir.close(toolbox.getIo());
 
         var it = self.getDuringExecKeys();
         while (it.next()) |key| {
-            try references_dir.deleteFile(key.*);
-            try references_dir.writeFile(.{
+            try references_dir.deleteFile(toolbox.getIo(), key.*);
+            try references_dir.writeFile(toolbox.getIo(), .{
                 .sub_path = key.*,
                 .data = toolbox.fmt("{s}\n", .{
                     self.getDuringExec(key.*).getShortLatest(),
@@ -604,10 +653,10 @@ const Dependencies = struct {
             '{', pkg, builtin.zig_version.major, builtin.zig_version.minor, builtin.zig_version.patch, fingerprint, '{',
         });
 
-        var build_dir = try toolbox.getBuilder().build_root.handle.openDir(".", .{
+        var build_dir = try toolbox.getBuilder().build_root.handle.openDir(toolbox.getIo(), ".", .{
             .iterate = true,
         });
-        defer build_dir.close();
+        defer build_dir.close(toolbox.getIo());
 
         try buffer.print(toolbox.getAllocator(), "\"build.zig\",\n\"build.zig.zon\",\n", .{});
 
@@ -627,8 +676,8 @@ const Dependencies = struct {
         const validated = try std.zig.Ast.parse(toolbox.getAllocator(), source, .zon);
         const formatted = try validated.renderAlloc(toolbox.getAllocator());
 
-        try toolbox.getBuilder().build_root.handle.deleteFile("build.zig.zon");
-        try toolbox.getBuilder().build_root.handle.writeFile(.{
+        try toolbox.getBuilder().build_root.handle.deleteFile(toolbox.getIo(), "build.zig.zon");
+        try toolbox.getBuilder().build_root.handle.writeFile(toolbox.getIo(), .{
             .sub_path = "build.zig.zon",
             .data = formatted,
         });
@@ -652,15 +701,18 @@ pub fn build(builder: *std.Build) !void {
         .root_source_file = builder.addWriteFiles().add("empty.zig", ""),
     });
 
-    if (@import("builtin").os.tag != .windows) {
-        const clean_step = builder.step("clean", "Clean up");
+    // Commenting out the statements below because the zig project indicates
+    // that addRemoveDirTree and clearing the cache should not be done from build.zig
 
-        clean_step.dependOn(&builder.addRemoveDirTree(.{
-            .cwd_relative = builder.install_path,
-        }).step);
-
-        clean_step.dependOn(&builder.addRemoveDirTree(.{
-            .cwd_relative = builder.pathFromRoot("zig-cache"),
-        }).step);
-    }
+    // if (@import("builtin").os.tag != .windows) {
+    //     const clean_step = builder.step("clean", "Clean up");
+    //
+    //     clean_step.dependOn(&builder.addRemoveDirTree(.{
+    //         .cwd_relative = builder.install_path,
+    //     }).step);
+    //
+    //     clean_step.dependOn(&builder.addRemoveDirTree(.{
+    //         .cwd_relative = builder.pathFromRoot("zig-cache"),
+    //     }).step);
+    // }
 }
