@@ -1,651 +1,305 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const EnumLiteral = @Type(.enum_literal);
+pub const ext = struct {
+    pub const source = struct {
+        pub const c = [_][]const u8{ ".c" };
+        pub const cpp = struct {
+            pub const pure = [_][]const u8{ ".cc", ".cpp", ".cxx" };
+            pub const c_compatible = ext.source.c ++ ext.source.cpp.pure;
+        };
+    };
 
-const FetchTarget = struct {
-    name: []const u8,
-    domain: []const u8 = "",
-    host: Repository.Host,
-    ref: Repository.Reference,
-    branch: []const u8 = "",
+    pub const header = struct {
+        pub const c = [_][]const u8{ ".h" };
+        pub const cpp = struct {
+            pub const pure = [_][]const u8{ ".hh", ".hpp", ".hxx" };
+            pub const c_compatible = ext.header.c ++ ext.header.cpp.pure;
+            pub const @"11" = struct {
+                pub const pure = ext.header.cpp.pure ++ [_][]const u8{ ".hpp11" };
+                pub const c_compatible = ext.header.c ++ ext.header.cpp.@"11".pure;
+            };
+        };
+    };
 };
 
-pub fn Repositories(comptime tuple: anytype) type {
-    std.debug.assert(@typeInfo(@TypeOf(tuple)).@"struct".is_tuple);
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = blk: {
-                var fields: [tuple.len]std.builtin.Type.StructField = undefined;
-                for (tuple, 0..) |literal, i| {
-                    fields[i] = .{
-                        .name = @tagName(literal),
-                        .type = FetchTarget,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = if (@sizeOf(FetchTarget) > 0) @alignOf(FetchTarget) else 0,
-                    };
-                }
-                break :blk &fields;
-            },
-            .decls = &.{},
-            .is_tuple = false,
-        },
-    });
+inline fn checkExt(name: []const u8, exts: []const []const u8) bool {
+    var res = false;
+    inline for (exts) |e| res = (res or std.mem.endsWith(u8, name, e));
+    return res;
 }
 
-pub fn isCSource(name: []const u8) bool {
-    return std.mem.endsWith(u8, name, ".c");
+pub inline fn isCSource(name: []const u8) bool {
+    return checkExt(name, &ext.source.c);
 }
 
-pub fn isCppSource(name: []const u8) bool {
-    return std.mem.endsWith(u8, name, ".cc") or std.mem.endsWith(u8, name, ".cpp");
+pub inline fn isCppSource(name: []const u8) bool {
+    return checkExt(name, &ext.source.cpp.pure);
 }
 
-pub fn isSource(name: []const u8) bool {
-    return isCSource(name) or isCppSource(name);
+pub inline fn isSource(name: []const u8) bool {
+    return checkExt(name, &ext.source.cpp.c_compatible);
 }
 
-pub fn isCHeader(name: []const u8) bool {
-    return std.mem.endsWith(u8, name, ".h");
+pub inline fn isCHeader(name: []const u8) bool {
+    return checkExt(name, &ext.header.c);
 }
 
-pub fn isCppHeader(name: []const u8) bool {
-    return std.mem.endsWith(u8, name, ".hpp") or std.mem.endsWith(u8, name, ".hpp11");
+pub inline fn isCppHeader(name: []const u8) bool {
+    return checkExt(name, &ext.header.cpp.pure);
 }
 
-pub fn isHeader(name: []const u8) bool {
-    return isCHeader(name) or isCppHeader(name);
+pub inline fn isHeader(name: []const u8) bool {
+    return checkExt(name, &ext.header.cpp.c_compatible);
 }
 
-pub fn exists(path: []const u8) bool {
-    if (path.len == 0) return false;
-    std.fs.accessAbsolute(path, .{}) catch return false;
-    return true;
-}
+pub const VerboseBuilder = struct {
+    const BuildOptions = struct {
+        __fetch: bool,
+        __update: bool,
+        __verbose: bool = false,
+    };
 
-pub const Toolbox = struct {
     __builder: *std.Build,
-    __mode: std.builtin.OptimizeMode,
-    __dependencies: Dependencies,
-    __fetch: bool,
-    __update: bool,
-    __zon_forks: std.StringHashMap([]const u8),
-    __logging: bool,
+    __optimize: std.builtin.OptimizeMode,
+    __target: std.Build.ResolvedTarget,
+    __options: BuildOptions,
+    __walker: ?std.fs.Dir.Walker,
+    __dir: std.fs.Dir,
+    __prefix: []const u8,
+    __build_fn: ?*const fn (*@This()) anyerror!void,
+    __update_fn: ?*const fn (*@This()) anyerror!void,
 
-    pub fn init(comptime FromZon: type, comptime DuringExec: type, builder: *std.Build, mode: std.builtin.OptimizeMode, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
-        var self: @This() = .{
+    pub fn init(builder: *std.Build, zon: anytype, build_fn: ?*const fn (*@This()) anyerror!void, update_fn: ?*const fn (*@This()) anyerror!void) !@This() {
+        builder.dep_prefix = @tagName(zon.name) ++ ".";
+        var self: @This () = .{
             .__builder = builder,
-            .__mode = mode,
-            .__dependencies = undefined,
-            .__fetch = builder.option(bool, "fetch", "Update .references folder and build.zig.zon then stop execution") orelse false,
-            .__update = builder.option(bool, "update", "Update binding") orelse false,
-            .__logging = builder.option(bool, "toolbox-logging", "Enabled toolbox debug logging") orelse false,
-            .__zon_forks = std.StringHashMap([]const u8).init(builder.allocator),
+            .__optimize = builder.standardOptimizeOption(.{}),
+            .__target = builder.standardTargetOptions(.{}),
+            .__options = undefined,
+            .__walker = null,
+            .__dir = builder.build_root.handle,
+            .__prefix = "/",
+            .__build_fn = build_fn,
+            .__update_fn = update_fn,
         };
 
-        self.__dependencies = Dependencies.init(FromZon, DuringExec, &self, pkg, fingerprint, paths, from_zon_deps, during_exec_deps) catch |err| switch (err) {
-            error.FetchDepsSucceed => std.process.exit(0),
-            else => return err,
-        };
-
-        inline for (@typeInfo(FromZon).@"struct".fields) |field| {
-            try self.addZonFork(field.name);
-        }
+        self.ptrOptions().__verbose = self.option(bool, false, "verbose", "Enabled toolbox debug logging");
+        self.ptrOptions().__fetch = self.option(bool, false, "fetch", "Update build.zig.zon then stop execution");
+        self.ptrOptions().__update = self.option(bool, false, "update", "Update binding");
 
         return self;
+    }
+
+    pub fn initFromDependency(self: @This(), dep: *std.Build.Dependency) @This() {
+        dep.builder.dep_prefix = dep.builder.dep_prefix[self.getBuilder().dep_prefix.len..];
+        const other: @This() = .{
+            .__builder = dep.builder,
+            .__optimize = self.getOptimize(),
+            .__target = self.getTarget(),
+            .__options = self.getOptions(),
+            .__walker = null,
+            .__dir = dep.builder.build_root.handle,
+            .__prefix = "/",
+            .__build_fn = null,
+            .__update_fn = null,
+        };
+        return other;
     }
 
     pub fn deinit(self: *@This()) void {
-        self.ptrZonForks().deinit();
+        _ = self;
     }
 
-    fn getMode(self: @This()) std.builtin.OptimizeMode {
-        return self.__mode;
+    pub fn build(self: *@This()) !void {
+        try self.getBuildFn()(self);
     }
 
-    fn loggingEnabled(self: @This()) bool {
-        return self.__logging;
+    pub fn update(self: *@This()) !void {
+        if (self.needUpdate()) try self.getUpdateFn()(self);
     }
 
-    pub fn getBuilder(self: @This()) *const std.Build {
+    // Getters ----------------------------------------------------------------
+
+    inline fn getBuilder(self: @This()) *const std.Build {
         return self.__builder;
     }
 
-    pub fn getAllocator(self: @This()) std.mem.Allocator {
+    inline fn ptrBuilder(self: @This()) *std.Build {
+        return self.__builder;
+    }
+
+    inline fn getAllocator(self: @This()) std.mem.Allocator {
         return self.getBuilder().allocator;
     }
 
-    fn getDependencies(self: @This()) Dependencies {
-        return self.__dependencies;
+    inline fn ptrRoot(self: *@This()) *std.Build.Cache.Directory {
+        return &self.ptrBuilder().build_root;
     }
 
-    fn getFetch(self: @This()) bool {
-        return self.__fetch;
+    inline fn ptrDir(self: *@This()) *std.fs.Dir {
+        return &self.__dir;
     }
 
-    pub fn getUpdate(self: @This()) bool {
-        return self.__update;
+    inline fn getPrefix(self: @This()) []const u8 {
+        return self.__prefix;
     }
 
-    fn ptrBuilder(self: *@This()) *std.Build {
-        return self.__builder;
+    inline fn ptrPrefix(self: *@This()) *[]const u8 {
+        return &self.__prefix;
     }
 
-    fn getZonForks(self: @This()) std.StringHashMap([]const u8) {
-        return self.__zon_forks;
+    pub inline fn getOptimize(self: @This()) std.builtin.OptimizeMode {
+        return self.__optimize;
     }
 
-    fn ptrZonForks(self: *@This()) *std.StringHashMap([]const u8) {
-        return &self.__zon_forks;
+    pub inline fn getTarget(self: @This()) std.Build.ResolvedTarget {
+        return self.__target;
     }
 
-    fn getZonFork(self: @This(), key: []const u8) []const u8 {
-        return self.getZonForks().get(key) orelse "";
+    inline fn getWalker(self: @This()) ?std.fs.Dir.Walker {
+        return self.__walker;
     }
 
-    fn addZonFork(self: *@This(), comptime key: []const u8) !void {
-        try self.ptrZonForks().put(key, self.ptrBuilder().option([]const u8, key, "Switch to the given branch from a given fork for the " ++ key ++ " repository") orelse "");
+    inline fn ptrWalker(self: *@This()) *std.fs.Dir.Walker {
+        return &self.__walker.?;
     }
 
-    pub fn clone(self: *@This(), repo: EnumLiteral, path: []const u8) !void {
-        try self.getDependencies().clone(self, repo, path);
+    fn initWalker(self: *@This(), paths: []const []const u8) !void {
+        try self.openDir(paths);
+        self.__walker = try self.ptrDir().walk(self.getAllocator());
     }
 
-    pub fn addHeader(self: @This(), lib: *std.Build.Step.Compile, source: []const u8, dest: []const u8, ext: []const []const u8) void {
-        if (self.loggingEnabled()) {
-            std.debug.print("[{s} header] {s}\n", .{
-                lib.name, source,
-            });
-        }
+    fn deinitWalker(self: *@This()) void {
+        self.ptrDir().close();
+        self.ptrWalker().deinit();
+    }
+
+    inline fn getOptions(self: @This()) BuildOptions {
+        return self.__options;
+    }
+
+    inline fn ptrOptions(self: *@This()) *BuildOptions {
+        return &self.__options;
+    }
+
+    inline fn getBuildFn(self: @This()) *const fn (*@This()) anyerror!void {
+        return self.__build_fn.?;
+    }
+
+    inline fn getUpdateFn(self: @This()) *const fn (*@This()) anyerror!void {
+        return self.__update_fn.?;
+    }
+
+    inline fn isVerbose(self: @This()) bool {
+        return self.getOptions().__verbose;
+    }
+
+    inline fn needUpdate(self: @This()) bool {
+        return self.getOptions().__update;
+    }
+
+    // Utilities --------------------------------------------------------------
+
+    inline fn debug(self: @This(), comptime fmt: []const u8, args: anytype) void {
+        if (self.isVerbose()) std.log.debug(fmt, args);
+    }
+
+    // std.Builder wrappers ---------------------------------------------------
+
+    fn option(self: *@This(), comptime T: type, default: T, name: []const u8, description: []const u8) T {
+        const opt = self.ptrBuilder().option(T, name, description) orelse default;
+        self.debug("-D{s} option: {}", .{ name, opt });
+        return opt;
+    }
+
+    pub fn dependency(self: *@This(), name: []const u8) *std.Build.Dependency {
+        self.debug("Requesting \"{s}\" dependency", .{ name });
+        return self.ptrBuilder().dependency(name, .{
+            .optimize = self.getOptimize(),
+            .target = self.getTarget(),
+        });
+    }
+
+    pub fn addLibrary(self: *@This(), name: []const u8) *std.Build.Step.Compile {
+        self.debug("Creating \"{s}\" library", .{ name });
+        return self.ptrBuilder().addLibrary(.{
+            .name = name,
+            .root_module = std.Build.Module.create(self.ptrBuilder(), .{
+                .root_source_file = self.ptrBuilder().addWriteFiles().add("empty.zig", ""),
+                .target = self.getTarget(),
+                .optimize = self.getOptimize(),
+            }),
+        });
+    }
+
+    pub fn installHeaders(self: *@This(), lib: *std.Build.Step.Compile, source_paths: []const []const u8, dest: []const u8, exts: []const []const u8) void {
+        const source_path = self.ptrBuilder().pathJoin(source_paths);
+        self.debug("Installing {s} headers into {s}", .{ source_path, dest });
         lib.installHeadersDirectory(.{
-            .cwd_relative = source,
+            .cwd_relative = source_path,
         }, dest, .{
-            .include_extensions = ext,
+            .include_extensions = exts,
         });
     }
 
-    pub fn addInclude(self: *@This(), lib: *std.Build.Step.Compile, path: []const u8) void {
-        const lazy = self.ptrBuilder().path(path);
-        if (self.loggingEnabled()) {
-            std.debug.print("[{s} include] {s}\n", .{
-                lib.name, lazy.getPath(self.ptrBuilder()),
-            });
-        }
-        lib.addIncludePath(lazy);
+    pub fn installArtifact(self: *@This(), artifact: *std.Build.Step.Compile) void {
+        self.debug("Installing \"{s}\" artifact", .{ artifact.name });
+        self.ptrBuilder().installArtifact(artifact);
     }
 
-    pub fn addSource(self: *@This(), lib: *std.Build.Step.Compile, root_path: []const u8, base_path: []const u8, flags: []const []const u8) !void {
-        const source_path = self.pathJoin(&.{
-            root_path, base_path,
-        });
-        if (self.loggingEnabled()) {
-            std.debug.print("[{s} source] {s}\n", .{
-                lib.name, source_path,
-            });
-        }
-        lib.addCSourceFile(.{
-            .file = .{
-                .cwd_relative = source_path,
-            },
-            .flags = flags,
-        });
+    // std.fs wrappers --------------------------------------------------------
+
+    fn openDir(self: *@This(), paths: []const []const u8) !void {
+        const path = self.ptrBuilder().pathJoin(paths);
+        self.debug("Opening {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
+        self.ptrPrefix().* = if (path.len == 0) "/"
+            else try std.mem.concat(self.getAllocator(), u8, &.{ "/", path, "/" });
+        self.ptrDir().* = try self.ptrDir().openDir(path, .{ .iterate = true });
     }
 
-    pub fn write(self: @This(), path: []const u8, name: []const u8, content: []const u8) !void {
-        if (self.loggingEnabled()) {
-            std.debug.print("[write {s}/{s}]\n", .{
-                path, name,
-            });
-        }
-        var dir = try std.fs.openDirAbsolute(path, .{});
-        defer dir.close();
-        try dir.writeFile(.{
-            .sub_path = name,
-            .data = content,
-        });
+    pub fn remove(self: *@This(), paths: []const []const u8) !void {
+        const path = self.ptrBuilder().pathJoin(paths);
+        self.debug("Removing {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
+        self.ptrDir().deleteTree(path) catch |err|
+            if (err != error.FileNotFound) return err;
     }
 
-    pub fn make(self: @This(), path: []const u8) !void {
-        if (self.loggingEnabled()) {
-            std.debug.print("[make {s}]\n", .{
-                path,
-            });
-        }
-        std.fs.makeDirAbsolute(path) catch |err|
+    pub fn make(self: *@This(), paths: []const []const u8) !void {
+        const path = self.ptrBuilder().pathJoin(paths);
+        self.debug("Making {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
+        self.ptrDir().makeDir(path) catch |err|
             if (err != error.PathAlreadyExists) return err;
     }
 
-    pub fn copy(self: @This(), src: []const u8, dest: []const u8) !void {
-        if (self.loggingEnabled()) {
-            std.debug.print("[copy {s} {s}]\n", .{
-                src, dest,
-            });
-        }
-        try std.fs.copyFileAbsolute(src, dest, .{});
+    pub fn copy(dest: *@This(), dest_paths: []const []const u8, source: *@This(), source_paths: []const []const u8) !void {
+        const source_path = dest.ptrBuilder().pathJoin(source_paths);
+        const dest_path = dest.ptrBuilder().pathJoin(dest_paths);
+        dest.debug("Copying {s}{s}{s} into {s}{s}{s}", .{
+            source.getBuilder().dep_prefix, source.getPrefix(), source_path,
+            dest.getBuilder().dep_prefix, dest.getPrefix(), dest_path,
+        });
+        try source.ptrDir().copyFile(source_path, dest.ptrDir().*, dest_path, .{});
     }
 
-    pub fn run(self: @This(), proc: struct {
-        argv: []const []const u8,
-        cwd: ?[]const u8 = null,
-        env: ?*const std.process.EnvMap = null,
-        wait: ?*const fn () void = null,
-        stdout: ?*[]const u8 = null,
-        ignore_errors: bool = false,
-    }) !void {
-        var stdout: std.ArrayListUnmanaged(u8) = .empty;
-        var stderr: std.ArrayListUnmanaged(u8) = .empty;
-
-        if (self.getMode() == .Debug) {
-            std.debug.print("\x1b[35m[{s}]\x1b[0m\n", .{
-                try std.mem.join(self.getAllocator(), " ", proc.argv),
-            });
+    pub fn walk(self: *@This(), paths: []const []const u8) !?std.fs.Dir.Walker.Entry {
+        if (self.getWalker() == null) {
+            self.debug("Allocating ressources for walker", .{});
+            try self.initWalker(paths);
         }
 
-        var child = std.process.Child.init(proc.argv, self.getAllocator());
-
-        child.stdin_behavior = .Ignore;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-        child.cwd = proc.cwd;
-        child.env_map = proc.env;
-
-        try child.spawn();
-
-        var term: std.process.Child.Term = undefined;
-        if (proc.wait) |wait| {
-            wait();
-            term = try child.kill();
+        const entry = try self.ptrWalker().next();
+        if (entry) |e| {
+            self.debug("Walking into {s}{s}{s} {s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), e.path, @tagName(e.kind) });
         } else {
-            try child.collectOutput(self.getAllocator(), &stdout, &stderr, std.math.maxInt(usize));
-            term = try child.wait();
+            self.debug("Freeing ressources for walker", .{});
+            self.deinitWalker();
         }
-        const exit_success = std.process.Child.Term{
-            .Exited = 0,
-        };
-        if (!proc.ignore_errors and stderr.items.len > 0 and !std.meta.eql(term, exit_success)) {
-            std.debug.print("\x1b[31m{s}\x1b[0m", .{
-                stderr.items,
-            });
-        }
-        if (!proc.ignore_errors and proc.wait == null) {
-            try std.testing.expectEqual(term, exit_success);
-        }
-
-        if (proc.stdout) |out| {
-            out.* = std.mem.trim(u8, try stdout.toOwnedSlice(self.getAllocator()), " \n");
-        } else if (self.loggingEnabled()) {
-            std.debug.print("{s}", .{
-                stdout.items,
-            });
-        }
-    }
-
-    pub fn clean(self: *@This(), paths: []const []const u8, extensions: []const []const u8) !void {
-        var flag: bool = undefined;
-        var dir: std.fs.Dir = undefined;
-        var root_path: []const u8 = undefined;
-        var walker: std.fs.Dir.Walker = undefined;
-
-        for (paths) |path| {
-            dir = try self.getBuilder().build_root.handle.openDir(path, .{
-                .iterate = true,
-            });
-            defer dir.close();
-
-            root_path = try self.buildRootJoin(&.{
-                path,
-            });
-
-            flag = true;
-            while (flag) {
-                flag = false;
-
-                walker = try dir.walk(self.getAllocator());
-                defer walker.deinit();
-
-                walk: while (try walker.next()) |*entry| {
-                    const entry_abspath = self.pathJoin(&.{
-                        root_path, entry.path,
-                    });
-                    switch (entry.kind) {
-                        .file => {
-                            for (extensions) |ext|
-                                if (std.mem.endsWith(u8, entry.basename, ext)) continue :walk;
-                            if (isSource(entry.basename) or
-                                isHeader(entry.basename)) continue :walk;
-                            try std.fs.deleteFileAbsolute(entry_abspath);
-                            if (self.loggingEnabled()) {
-                                std.debug.print("[clean] {s}\n", .{
-                                    entry_abspath,
-                                });
-                            }
-                            flag = true;
-                        },
-                        .directory => {
-                            std.fs.deleteDirAbsolute(entry_abspath) catch |err|
-                                if (err == error.DirNotEmpty) continue :walk else return err;
-                            if (self.loggingEnabled()) {
-                                std.debug.print("[clean] {s}\n", .{
-                                    entry_abspath,
-                                });
-                            }
-                            flag = true;
-                        },
-                        else => {},
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn buildRootJoin(self: @This(), paths: []const []const u8) ![]u8 {
-        return self.getBuilder().build_root.join(self.getAllocator(), paths);
-    }
-
-    pub fn pathJoin(self: *@This(), paths: []const []const u8) []u8 {
-        return self.ptrBuilder().pathJoin(paths);
-    }
-
-    pub fn fmt(self: *@This(), comptime format: []const u8, args: anytype) []u8 {
-        return self.ptrBuilder().fmt(format, args);
-    }
-
-    pub fn dupe(self: *@This(), bytes: []const u8) []u8 {
-        return self.ptrBuilder().dupe(bytes);
-    }
-
-    pub fn reference(self: *@This(), repo: EnumLiteral) ![]const u8 {
-        const path = try self.buildRootJoin(&.{
-            ".references", @tagName(repo),
-        });
-        return std.mem.trim(u8, try self.getBuilder().build_root.handle.readFileAlloc(self.getAllocator(), path, std.math.maxInt(usize)), " \n");
+        return entry;
     }
 };
 
-const Repository = struct {
-    const Host = enum {
-        github,
-        gitlab,
-    };
-
-    const Reference = enum {
-        tag,
-        commit,
-    };
-
-    __name: []const u8,
-    __url: []const u8,
-    __latest: []const u8,
-    __ref: Reference,
-
-    fn init(toolbox: *Toolbox, name: []const u8, url: []const u8, latest: ?[]const u8, ref: Reference) @This() {
-        return .{
-            .__name = toolbox.dupe(name),
-            .__url = toolbox.dupe(url),
-            .__latest = if (latest) |tag| toolbox.dupe(tag) else "",
-            .__ref = ref,
-        };
-    }
-
-    fn getName(self: @This()) []const u8 {
-        return self.__name;
-    }
-
-    fn getUrl(self: @This()) []const u8 {
-        return self.__url;
-    }
-
-    fn getLatest(self: @This()) []const u8 {
-        return self.__latest;
-    }
-
-    fn ptrLatest(self: *@This()) *[]const u8 {
-        return &self.__latest;
-    }
-
-    fn getRef(self: @This()) Reference {
-        return self.__ref;
-    }
-
-    fn isLatestValid(self: @This()) !void {
-        if (std.mem.indexOfAny(u8, self.getLatest(), "0123456789") == null or std.mem.indexOfScalar(u8, self.getLatest(), '.') == null) return error.InvalidLatest;
-    }
-
-    fn getShortLatest(self: @This()) []const u8 {
-        return switch (self.getRef()) {
-            .tag => self.getLatest(),
-            .commit => self.getLatest()[0..7],
-        };
-    }
-
-    fn searchLatest(self: *@This(), toolbox: *Toolbox, branch_opt: ?[]const u8) !void {
-        var tmp_dir = std.testing.tmpDir(.{});
-        defer tmp_dir.cleanup();
-        const tmp = try tmp_dir.dir.realpathAlloc(toolbox.getAllocator(), ".");
-
-        try toolbox.run(.{
-            .argv = if (branch_opt) |branch| &[_][]const u8{
-                "git", "clone", "--bare", "--branch", branch, "--filter=blob:none", "--", self.getUrl(), &tmp_dir.sub_path,
-            } else &[_][]const u8{
-                "git", "clone", "--bare", "--filter=blob:none", "--", self.getUrl(), &tmp_dir.sub_path,
-            },
-            .cwd = try tmp_dir.parent_dir.realpathAlloc(toolbox.getAllocator(), "."),
-        });
-
-        switch (self.getRef()) {
-            .commit => try self.searchLatestCommit(toolbox, tmp),
-            .tag => try self.searchLatestTag(toolbox, tmp),
-        }
-    }
-
-    fn searchLatestCommit(self: *@This(), toolbox: *Toolbox, tmp: []const u8) !void {
-        try toolbox.run(.{
-            .argv = &[_][]const u8{
-                "git", "rev-parse", "HEAD",
-            },
-            .cwd = tmp,
-            .stdout = self.ptrLatest(),
-        });
-    }
-
-    fn searchLatestTag(self: *@This(), toolbox: *Toolbox, tmp: []const u8) !void {
-        var commit: []const u8 = undefined;
-        for (0..std.math.maxInt(usize)) |i| {
-            commit = toolbox.fmt("HEAD~{}", .{
-                i,
-            });
-            try toolbox.run(.{
-                .argv = &[_][]const u8{
-                    "git", "describe", "--tags", "--exact-match", commit,
-                },
-                .cwd = tmp,
-                .stdout = self.ptrLatest(),
-                .ignore_errors = true,
-            });
-            self.isLatestValid() catch continue;
-            break;
-        } else return error.NoValidTag;
-    }
-};
-
-const Dependencies = struct {
-    __from_zon_deps: std.StringHashMap(Repository),
-    __during_exec_deps: std.StringHashMap(Repository),
-
-    fn getFromZonDeps(self: @This()) std.StringHashMap(Repository) {
-        return self.__from_zon_deps;
-    }
-
-    fn getDuringExecDeps(self: @This()) std.StringHashMap(Repository) {
-        return self.__during_exec_deps;
-    }
-
-    fn ptrFromZonDeps(self: *@This()) *std.StringHashMap(Repository) {
-        return &self.__from_zon_deps;
-    }
-
-    fn ptrDuringExecDeps(self: *@This()) *std.StringHashMap(Repository) {
-        return &self.__during_exec_deps;
-    }
-
-    fn getFromZon(self: @This(), key: []const u8) Repository {
-        return self.getFromZonDeps().get(key).?;
-    }
-
-    fn getDuringExec(self: @This(), key: []const u8) Repository {
-        return self.getDuringExecDeps().get(key).?;
-    }
-
-    fn getFromZonKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
-        return self.getFromZonDeps().keyIterator();
-    }
-
-    fn getDuringExecKeys(self: @This()) std.StringHashMap(Repository).KeyIterator {
-        return self.getDuringExecDeps().keyIterator();
-    }
-
-    fn init(comptime FromZon: type, comptime DuringExec: type, toolbox: *Toolbox, pkg: EnumLiteral, fingerprint: []const u8, paths: []const []const u8, from_zon_deps: FromZon, during_exec_deps: DuringExec) !@This() {
-        var self: @This() = .{
-            .__from_zon_deps = std.StringHashMap(Repository).init(toolbox.getAllocator()),
-            .__during_exec_deps = std.StringHashMap(Repository).init(toolbox.getAllocator()),
-        };
-
-        var repository: Repository = undefined;
-        inline for (.{
-            from_zon_deps, during_exec_deps,
-        }, &.{
-            ptrFromZonDeps, ptrDuringExecDeps,
-        }) |@"struct", func| {
-            inline for (@typeInfo(@TypeOf(@"struct")).@"struct".fields) |field| {
-                const struct_name = @field(@"struct", field.name).name;
-                const struct_host = @field(@"struct", field.name).host;
-                const struct_ref = @field(@"struct", field.name).ref;
-                const struct_branch = @field(@"struct", field.name).branch;
-                const fork = toolbox.getZonFork(field.name);
-                const name = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[0..i] else struct_name;
-                const branch = if (std.mem.indexOfScalar(u8, fork, ':')) |i| fork[i + 1 ..] else if (struct_branch.len > 0) struct_branch else null;
-                repository = Repository.init(toolbox, name, switch (struct_host) {
-                    .github => toolbox.fmt("https://github.com/{s}", .{
-                        name,
-                    }),
-                    .gitlab => toolbox.fmt("https://gitlab.{s}/{s}", .{
-                        @field(@"struct", field.name).domain, name,
-                    }),
-                }, null, struct_ref);
-                if (toolbox.getFetch()) try repository.searchLatest(toolbox, branch);
-                try @call(.auto, func, .{
-                    &self,
-                }).put(field.name, repository);
-            }
-        }
-
-        if (toolbox.getFetch()) {
-            try self.fetchDuringExecDeps(toolbox);
-            try self.fetchFromZonDeps(toolbox, pkg, fingerprint, paths);
-            return error.FetchDepsSucceed;
-        }
-
-        return self;
-    }
-
-    fn clone(self: @This(), toolbox: *Toolbox, repo: EnumLiteral, path: []const u8) !void {
-        switch (self.getDuringExec(@tagName(repo)).getRef()) {
-            .tag => try toolbox.run(.{
-                .argv = &[_][]const u8{
-                    "git", "clone", "--branch", try toolbox.reference(repo), "--depth", "1", "--", self.getDuringExec(@tagName(repo)).getUrl(), path,
-                },
-            }),
-            .commit => {
-                try toolbox.run(.{
-                    .argv = &[_][]const u8{
-                        "git", "clone", "--", self.getDuringExec(@tagName(repo)).getUrl(), path,
-                    },
-                });
-                try toolbox.run(.{
-                    .argv = &[_][]const u8{
-                        "git", "checkout", try toolbox.reference(repo),
-                    },
-                    .cwd = path,
-                });
-            },
-        }
-    }
-
-    fn fetchDuringExecDeps(self: @This(), toolbox: *Toolbox) !void {
-        var references_dir = try toolbox.getBuilder().build_root.handle.openDir(".references", .{});
-        defer references_dir.close();
-
-        var it = self.getDuringExecKeys();
-        while (it.next()) |key| {
-            try references_dir.deleteFile(key.*);
-            try references_dir.writeFile(.{
-                .sub_path = key.*,
-                .data = toolbox.fmt("{s}\n", .{
-                    self.getDuringExec(key.*).getShortLatest(),
-                }),
-            });
-        }
-    }
-
-    fn fetchFromZonDeps(self: @This(), toolbox: *Toolbox, pkg: EnumLiteral, fingerprint: []const u8, additional_paths: []const []const u8) !void {
-        var buffer: std.ArrayList(u8) = .empty;
-
-        try buffer.print(toolbox.getAllocator(),
-            \\.{c}
-            \\    .name = {},
-            \\    .version = "1.0.0",
-            \\    .minimum_zig_version = "{}.{}.{}",
-            \\    .fingerprint = {s},
-            \\    .paths = .{c}
-            \\
-        , .{
-            '{', pkg, builtin.zig_version.major, builtin.zig_version.minor, builtin.zig_version.patch, fingerprint, '{',
-        });
-
-        var build_dir = try toolbox.getBuilder().build_root.handle.openDir(".", .{
-            .iterate = true,
-        });
-        defer build_dir.close();
-
-        try buffer.print(toolbox.getAllocator(), "\"build.zig\",\n\"build.zig.zon\",\n", .{});
-
-        for (additional_paths) |path| {
-            try buffer.print(toolbox.getAllocator(), "\"{s}\",\n", .{
-                path,
-            });
-        }
-
-        try buffer.print(toolbox.getAllocator(), "{c},\n{c}\n", .{
-            '}', '}',
-        });
-
-        try buffer.append(toolbox.getAllocator(), 0);
-        const source = buffer.items[0 .. buffer.items.len - 1 :0];
-
-        const validated = try std.zig.Ast.parse(toolbox.getAllocator(), source, .zon);
-        const formatted = try validated.renderAlloc(toolbox.getAllocator());
-
-        try toolbox.getBuilder().build_root.handle.deleteFile("build.zig.zon");
-        try toolbox.getBuilder().build_root.handle.writeFile(.{
-            .sub_path = "build.zig.zon",
-            .data = formatted,
-        });
-
-        var it = self.getFromZonKeys();
-        while (it.next()) |key| {
-            const url = toolbox.fmt("git+{s}#{s}", .{
-                self.getFromZon(key.*).getUrl(), self.getFromZon(key.*).getLatest(),
-            });
-            try toolbox.run(.{
-                .argv = &[_][]const u8{
-                    "zig", "fetch", "--save", url,
-                },
-            });
-        }
-    }
-};
+// TODO: manage -Dfetch option
 
 pub fn build(builder: *std.Build) !void {
     _ = builder.addModule("toolbox", .{
