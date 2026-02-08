@@ -107,16 +107,45 @@ pub const VerboseBuilder = struct {
         return other;
     }
 
-    pub fn deinit(self: *@This()) void {
-        _ = self;
-    }
-
     pub fn build(self: *@This()) !void {
         try self.getBuildFn()(self);
     }
 
     pub fn update(self: *@This()) !void {
         if (self.needUpdate()) try self.getUpdateFn()(self);
+    }
+
+    pub fn fetch(self: *@This(), zon: anytype) !void {
+        if (!self.needFetch()) return;
+        inline for (std.meta.fields(@TypeOf(zon.dependencies))) |field| {
+            if (!@hasField(@TypeOf(@field(zon.dependencies, field.name)), "url")) continue;
+            const uri = try std.Uri.parse(@field(zon.dependencies, field.name).url);
+            const host = try uri.getHostAlloc(self.getAllocator());
+            const path = try uri.path.toRawMaybeAlloc(self.getAllocator());
+            var tmp = std.testing.tmpDir(.{});
+            defer tmp.cleanup();
+            const tmp_path = self.ptrBuilder().fmt("{s}/tmp/{s}", .{self.getBuilder().cache_root.path.?, tmp.sub_path});
+            if (@hasField(@TypeOf(@field(zon.dependencies, field.name)), "branch")) {
+                _ = try self.run(&.{ "git", "clone", "--bare", "--branch", @field(zon.dependencies, field.name).branch, "--filter=blob:none", "--", self.ptrBuilder().fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrRoot().handle);
+            } else {
+                _ = try self.run(&.{ "git", "clone", "--bare", "--filter=blob:none", "--", self.ptrBuilder().fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrRoot().handle);
+            }
+            var latest: []const u8 = undefined;
+            if (uri.query) |_| {
+                const commits = try std.fmt.parseInt(usize, try self.run(&.{ "git", "rev-list", "--count", "--all" }, tmp.dir), 10);
+                for (0..commits) |i| {
+                    latest = self.run(&.{ "git", "describe", "--tags", "--exact-match", self.ptrBuilder().fmt("HEAD~{}", .{ i }) }, tmp.dir) catch |err| switch (err) {
+                        error.ExitCodeFailure => continue,
+                        else => return err,
+                    };
+                    if (std.mem.indexOfAny(u8, latest, "0123456789.") == null) continue;
+                    break;
+                } else return error.NoValidTag;
+            } else {
+                latest = try self.run(&.{ "git", "rev-parse", "HEAD" }, tmp.dir);
+            }
+            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field.name, self.ptrBuilder().fmt("git+https://{s}{s}#{s}", .{ host, path, latest }) }, self.ptrRoot().handle);
+        }
     }
 
     // Getters ----------------------------------------------------------------
@@ -199,6 +228,10 @@ pub const VerboseBuilder = struct {
         return self.getOptions().__update;
     }
 
+    inline fn needFetch(self: @This()) bool {
+        return self.getOptions().__fetch;
+    }
+
     // Utilities --------------------------------------------------------------
 
     inline fn debug(self: @This(), comptime fmt: []const u8, args: anytype) void {
@@ -241,6 +274,45 @@ pub const VerboseBuilder = struct {
         }, dest, .{
             .include_extensions = exts,
         });
+    }
+
+    pub fn run(self: *@This(), argv: []const []const u8, cwd: std.fs.Dir) ![]const u8 {
+        std.debug.assert(argv.len != 0);
+        self.debug("Running \"{s}\"", .{ try std.mem.join(self.getAllocator(), " ", argv) });
+
+        if (!std.process.can_spawn) return error.ExecNotSupported;
+
+        const max_output_size = 400 * 1024;
+        var child = std.process.Child.init(argv, self.getAllocator());
+        child.stdin_behavior = .Ignore;
+        child.stdout_behavior = .Pipe;
+        child.stderr_behavior = .Ignore;
+        child.cwd_dir = cwd;
+        child.env_map = &self.ptrBuilder().graph.env_map;
+
+        try std.Build.Step.handleVerbose2(self.ptrBuilder(), null, child.env_map, argv);
+        try child.spawn();
+
+        const stdout = child.stdout.?.deprecatedReader().readAllAlloc(self.getAllocator(), max_output_size) catch {
+            return error.ReadFailure;
+        };
+        errdefer self.getAllocator().free(stdout);
+
+        const term = try child.wait();
+        switch (term) {
+            .Exited => |code| {
+                if (code != 0) {
+                    std.log.err("System command failed. Exit code: \"{d}\"", .{ @as(u8, @truncate(code)) });
+                    return error.ExitCodeFailure;
+                }
+                self.debug("Output: \"{s}\"", .{ std.mem.trim(u8, stdout, &std.ascii.whitespace) });
+                return std.mem.trim(u8, stdout, &std.ascii.whitespace);
+            },
+            .Signal, .Stopped, .Unknown => |code| {
+                std.log.err("System command failed. Exit code: \"{d}\"", .{ @as(u8, @truncate(code)) });
+                return error.ProcessTerminated;
+            },
+        }
     }
 
     pub fn installArtifact(self: *@This(), artifact: *std.Build.Step.Compile) void {
@@ -299,22 +371,8 @@ pub const VerboseBuilder = struct {
     }
 };
 
-// TODO: manage -Dfetch option
-
 pub fn build(builder: *std.Build) !void {
     _ = builder.addModule("toolbox", .{
         .root_source_file = builder.addWriteFiles().add("empty.zig", ""),
     });
-
-    if (@import("builtin").os.tag != .windows) {
-        const clean_step = builder.step("clean", "Clean up");
-
-        clean_step.dependOn(&builder.addRemoveDirTree(.{
-            .cwd_relative = builder.install_path,
-        }).step);
-
-        clean_step.dependOn(&builder.addRemoveDirTree(.{
-            .cwd_relative = builder.pathFromRoot("zig-cache"),
-        }).step);
-    }
 }
