@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 
 pub const ext = struct {
     pub const source = struct {
-        pub const c = [_][]const u8{ ".c" };
+        pub const c = [_][]const u8{".c"};
         pub const cpp = struct {
             pub const pure = [_][]const u8{ ".cc", ".cpp", ".cxx" };
             pub const c_compatible = ext.source.c ++ ext.source.cpp.pure;
@@ -11,12 +11,12 @@ pub const ext = struct {
     };
 
     pub const header = struct {
-        pub const c = [_][]const u8{ ".h" };
+        pub const c = [_][]const u8{".h"};
         pub const cpp = struct {
             pub const pure = [_][]const u8{ ".hh", ".hpp", ".hxx" };
             pub const c_compatible = ext.header.c ++ ext.header.cpp.pure;
             pub const @"11" = struct {
-                pub const pure = ext.header.cpp.pure ++ [_][]const u8{ ".hpp11" };
+                pub const pure = ext.header.cpp.pure ++ [_][]const u8{".hpp11"};
                 pub const c_compatible = ext.header.c ++ ext.header.cpp.@"11".pure;
             };
         };
@@ -72,7 +72,7 @@ pub const VerboseBuilder = struct {
 
     pub fn init(builder: *std.Build, zon: anytype, build_fn: ?*const fn (*@This()) anyerror!void, update_fn: ?*const fn (*@This()) anyerror!void) !@This() {
         builder.dep_prefix = @tagName(zon.name) ++ ".";
-        var self: @This () = .{
+        var self: @This() = .{
             .__builder = builder,
             .__optimize = builder.standardOptimizeOption(.{}),
             .__target = builder.standardTargetOptions(.{}),
@@ -120,21 +120,21 @@ pub const VerboseBuilder = struct {
         inline for (std.meta.fields(@TypeOf(zon.dependencies))) |field| {
             if (!@hasField(@TypeOf(@field(zon.dependencies, field.name)), "url")) continue;
             const uri = try std.Uri.parse(@field(zon.dependencies, field.name).url);
-            const host = try uri.getHostAlloc(self.getAllocator());
-            const path = try uri.path.toRawMaybeAlloc(self.getAllocator());
+            const host = uri.getHostAlloc(self.getAllocator()) catch @panic("OOM");
+            const path = self.uriComponent(uri.path);
             var tmp = std.testing.tmpDir(.{});
             defer tmp.cleanup();
-            const tmp_path = self.ptrBuilder().fmt("{s}/tmp/{s}", .{self.getBuilder().cache_root.path.?, tmp.sub_path});
+            const tmp_path = self.pathJoin(&.{ self.getBuilder().cache_root.path.?, "tmp", tmp.sub_path });
             if (@hasField(@TypeOf(@field(zon.dependencies, field.name)), "branch")) {
-                _ = try self.run(&.{ "git", "clone", "--bare", "--branch", @field(zon.dependencies, field.name).branch, "--filter=blob:none", "--", self.ptrBuilder().fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrRoot().handle);
+                _ = try self.run(&.{ "git", "clone", "--bare", "--branch", @field(zon.dependencies, field.name).branch, "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrRoot().handle);
             } else {
-                _ = try self.run(&.{ "git", "clone", "--bare", "--filter=blob:none", "--", self.ptrBuilder().fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrRoot().handle);
+                _ = try self.run(&.{ "git", "clone", "--bare", "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrRoot().handle);
             }
             var latest: []const u8 = undefined;
             if (uri.query) |_| {
-                const commits = try std.fmt.parseInt(usize, try self.run(&.{ "git", "rev-list", "--count", "--all" }, tmp.dir), 10);
+                const commits = try std.fmt.parseUnsigned(usize, try self.run(&.{ "git", "rev-list", "--count", "--all" }, tmp.dir), 10);
                 for (0..commits) |i| {
-                    latest = self.run(&.{ "git", "describe", "--tags", "--exact-match", self.ptrBuilder().fmt("HEAD~{}", .{ i }) }, tmp.dir) catch |err| switch (err) {
+                    latest = self.run(&.{ "git", "describe", "--tags", "--exact-match", self.fmt("HEAD~{}", .{i}) }, tmp.dir) catch |err| switch (err) {
                         error.ExitCodeFailure => continue,
                         else => return err,
                     };
@@ -144,11 +144,11 @@ pub const VerboseBuilder = struct {
             } else {
                 latest = try self.run(&.{ "git", "rev-parse", "HEAD" }, tmp.dir);
             }
-            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field.name, self.ptrBuilder().fmt("git+https://{s}{s}#{s}", .{ host, path, latest }) }, self.ptrRoot().handle);
+            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field.name, self.fmt("git+https://{s}{s}#{s}", .{ host, path, latest }) }, self.ptrRoot().handle);
         }
     }
 
-    // Getters ----------------------------------------------------------------
+    // inlined ----------------------------------------------------------------
 
     inline fn getBuilder(self: @This()) *const std.Build {
         return self.__builder;
@@ -164,6 +164,14 @@ pub const VerboseBuilder = struct {
 
     inline fn ptrRoot(self: *@This()) *std.Build.Cache.Directory {
         return &self.ptrBuilder().build_root;
+    }
+
+    pub inline fn getInstallStep(self: *@This()) *std.Build.Step {
+        return self.ptrBuilder().getInstallStep();
+    }
+
+    inline fn ptrCwd(self: *@This()) *std.fs.Dir {
+        return &self.ptrRoot().handle;
     }
 
     inline fn ptrDir(self: *@This()) *std.fs.Dir {
@@ -194,16 +202,6 @@ pub const VerboseBuilder = struct {
         return &self.__walker.?;
     }
 
-    fn initWalker(self: *@This(), paths: []const []const u8) !void {
-        try self.openDir(paths);
-        self.__walker = try self.ptrDir().walk(self.getAllocator());
-    }
-
-    fn deinitWalker(self: *@This()) void {
-        self.ptrDir().close();
-        self.ptrWalker().deinit();
-    }
-
     inline fn getOptions(self: @This()) BuildOptions {
         return self.__options;
     }
@@ -232,30 +230,65 @@ pub const VerboseBuilder = struct {
         return self.getOptions().__fetch;
     }
 
-    // Utilities --------------------------------------------------------------
-
-    inline fn debug(self: @This(), comptime fmt: []const u8, args: anytype) void {
-        if (self.isVerbose()) std.log.debug(fmt, args);
+    inline fn debug(self: @This(), comptime f: []const u8, args: anytype) void {
+        if (self.isVerbose()) std.log.debug(f, args);
     }
 
-    // std.Builder wrappers ---------------------------------------------------
+    // std.mem wrappers -------------------------------------------------------
 
-    fn option(self: *@This(), comptime T: type, default: T, name: []const u8, description: []const u8) T {
+    pub inline fn pathJoin(self: *@This(), paths: []const []const u8) []const u8 {
+        return self.ptrBuilder().pathJoin(paths);
+    }
+
+    pub inline fn join(self: @This(), sep: []const u8, slices: []const []const u8) []const u8 {
+        return std.mem.join(self.getAllocator(), sep, slices) catch @panic("OOM");
+    }
+
+    pub inline fn concat(self: @This(), slices: []const []const u8) []const u8 {
+        return std.mem.concat(self.getAllocator(), u8, slices) catch @panic("OOM");
+    }
+
+    pub inline fn replace(self: @This(), input: []const u8, search: []const u8, rep: []const u8) []const u8 {
+        return std.mem.replaceOwned(u8, self.getAllocator(), input, search, rep) catch @panic("OOM");
+    }
+
+    pub inline fn fmt(self: *@This(), comptime f: []const u8, args: anytype) []const u8 {
+        return self.ptrBuilder().fmt(f, args);
+    }
+
+    pub inline fn uriComponent(self: @This(), component: *std.Uri.Component) []const u8 {
+        return component.toRawMaybeAlloc(self.getAllocator()) catch @panic("OOM");
+    }
+
+    // std.Build wrappers -----------------------------------------------------
+
+    pub fn option(self: *@This(), comptime T: type, default: T, name: []const u8, description: []const u8) T {
         const opt = self.ptrBuilder().option(T, name, description) orelse default;
         self.debug("-D{s} option: {}", .{ name, opt });
         return opt;
     }
 
     pub fn dependency(self: *@This(), name: []const u8) *std.Build.Dependency {
-        self.debug("Requesting \"{s}\" dependency", .{ name });
+        self.debug("Requesting \"{s}\" dependency", .{name});
         return self.ptrBuilder().dependency(name, .{
             .optimize = self.getOptimize(),
             .target = self.getTarget(),
         });
     }
 
+    pub fn addExecutable(self: *@This(), name: []const u8) *std.Build.Step.Compile {
+        self.debug("Creating \"{s}\" executable", .{name});
+        return self.ptrBuilder().addExecutable(.{
+            .name = name,
+            .root_module = std.Build.Module.create(self.ptrBuilder(), .{
+                .target = self.getTarget(),
+                .optimize = self.getOptimize(),
+            }),
+        });
+    }
+
     pub fn addLibrary(self: *@This(), name: []const u8) *std.Build.Step.Compile {
-        self.debug("Creating \"{s}\" library", .{ name });
+        self.debug("Creating \"{s}\" library", .{name});
         return self.ptrBuilder().addLibrary(.{
             .name = name,
             .root_module = std.Build.Module.create(self.ptrBuilder(), .{
@@ -266,9 +299,26 @@ pub const VerboseBuilder = struct {
         });
     }
 
+    pub fn linkLibC(self: *@This(), compile: *std.Build.Step.Compile) void {
+        self.debug("Linking LibC to \"{s}\" compile step", .{compile.name});
+        compile.linkLibC();
+    }
+
+    pub fn addCSource(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, flags: []const []const u8) void {
+        const path = self.pathJoin(paths);
+        self.debug("Adding C Source {s} to \"{s}\" compile step", .{ path, compile.name });
+        compile.addCSourceFile(self.ptrBuilder().path(path), flags);
+    }
+
+    pub fn addInclude(self: *@This(), lib: *std.Build.Step.Compile, paths: []const []const u8) void {
+        const path = self.pathJoin(paths);
+        self.debug("Including {s} into \"{s}\" library", .{ path, lib.name });
+        lib.addIncludePath(self.ptrBuilder().path(path));
+    }
+
     pub fn installHeaders(self: *@This(), lib: *std.Build.Step.Compile, source_paths: []const []const u8, dest: []const u8, exts: []const []const u8) void {
-        const source_path = self.ptrBuilder().pathJoin(source_paths);
-        self.debug("Installing {s} headers into {s}", .{ source_path, dest });
+        const source_path = self.pathJoin(source_paths);
+        self.debug("Installing {s} headers into {s} into {s} library", .{ source_path, dest, lib.name });
         lib.installHeadersDirectory(.{
             .cwd_relative = source_path,
         }, dest, .{
@@ -278,7 +328,7 @@ pub const VerboseBuilder = struct {
 
     pub fn run(self: *@This(), argv: []const []const u8, cwd: std.fs.Dir) ![]const u8 {
         std.debug.assert(argv.len != 0);
-        self.debug("Running \"{s}\"", .{ try std.mem.join(self.getAllocator(), " ", argv) });
+        self.debug("Running \"{s}\"", .{self.join(" ", argv)});
 
         if (!std.process.can_spawn) return error.ExecNotSupported;
 
@@ -302,72 +352,127 @@ pub const VerboseBuilder = struct {
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
-                    std.log.err("System command failed. Exit code: \"{d}\"", .{ @as(u8, @truncate(code)) });
+                    std.log.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
                     return error.ExitCodeFailure;
                 }
-                self.debug("Output: \"{s}\"", .{ std.mem.trim(u8, stdout, &std.ascii.whitespace) });
-                return std.mem.trim(u8, stdout, &std.ascii.whitespace);
+                const trimmed = std.mem.trim(u8, stdout, &std.ascii.whitespace);
+                if (trimmed.len > 0) self.debug("Output: \"{s}\"", .{trimmed});
+                return trimmed;
             },
             .Signal, .Stopped, .Unknown => |code| {
-                std.log.err("System command failed. Exit code: \"{d}\"", .{ @as(u8, @truncate(code)) });
+                std.log.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
                 return error.ProcessTerminated;
             },
         }
     }
 
-    pub fn installArtifact(self: *@This(), artifact: *std.Build.Step.Compile) void {
-        self.debug("Installing \"{s}\" artifact", .{ artifact.name });
-        self.ptrBuilder().installArtifact(artifact);
+    pub fn addRunArtifact(self: *@This(), exe: *std.Build.Step.Compile) *std.Build.Step.Run {
+        self.debug("Adding a run step from \"{s}\" executable", .{exe.name});
+        return self.ptrBuilder().addRunArtifact(exe);
+    }
+
+    pub fn addWriteFiles(self: *@This()) *std.Build.Step.WriteFile {
+        self.debug("Adding a write files step from", .{});
+        return self.ptrBuilder().addWriteFiles();
+    }
+
+    pub fn addCopyFile(self: *@This(), write_file: *std.Build.Step.WriteFile, source: std.Build.LazyPath, paths: []const []const u8) std.Build.LazyPath {
+        const path = self.pathJoin(paths);
+        self.debug("Placing the {s} file into the generated directory within the local cache", .{path});
+        return write_file.addCopyFile(source, path);
+    }
+
+    pub fn expectExitCode(self: @This(), r: *std.Build.Step.Run, code: u8) void {
+        self.debug("Expecting {d} exit code from \"{s}\" run step", .{ code, r.step.name });
+        r.expectExitCode(code);
+    }
+
+    pub fn captureStdOut(self: @This(), r: *std.Build.Step.Run) []const u8 {
+        self.debug("Capturing stdout from \"{s}\" run step", .{r.step.name});
+        return r.captureStdOut();
+    }
+
+    pub fn addArgs(self: @This(), r: *std.Build.Step.Run, args: []const []const u8) void {
+        self.debug("Running \"{s}\" step with these arguments: \"{s}\"", .{ r.step.name, self.join("\" \"", args) });
+        r.addArgs(args);
+    }
+
+    pub fn installArtifact(self: *@This(), compile: *std.Build.Step.Compile) void {
+        self.debug("Installing \"{s}\" compile step", .{compile.name});
+        self.ptrBuilder().installArtifact(compile);
+    }
+
+    pub fn dependOn(self: *@This(), step1: *std.Build.Step, step2: *std.Build.Step) void {
+        self.debug("Making \"{s}\" step depends on \"{s}\" step", .{ step1.name, step2.name });
+        step1.dependOn(step2);
     }
 
     // std.fs wrappers --------------------------------------------------------
 
     fn openDir(self: *@This(), paths: []const []const u8) !void {
-        const path = self.ptrBuilder().pathJoin(paths);
+        const path = self.pathJoin(paths);
         self.debug("Opening {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
-        self.ptrPrefix().* = if (path.len == 0) "/"
-            else try std.mem.concat(self.getAllocator(), u8, &.{ "/", path, "/" });
-        self.ptrDir().* = try self.ptrDir().openDir(path, .{ .iterate = true });
+        self.ptrPrefix().* = if (path.len == 0) "/" else self.concat(&.{ "/", path, "/" });
+        self.ptrDir().* = try self.ptrCwd().openDir(path, .{ .iterate = true });
     }
 
     pub fn remove(self: *@This(), paths: []const []const u8) !void {
-        const path = self.ptrBuilder().pathJoin(paths);
+        const path = self.pathJoin(paths);
         self.debug("Removing {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
         self.ptrDir().deleteTree(path) catch |err|
             if (err != error.FileNotFound) return err;
     }
 
     pub fn make(self: *@This(), paths: []const []const u8) !void {
-        const path = self.ptrBuilder().pathJoin(paths);
+        const path = self.pathJoin(paths);
         self.debug("Making {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
         self.ptrDir().makeDir(path) catch |err|
             if (err != error.PathAlreadyExists) return err;
     }
 
     pub fn copy(dest: *@This(), dest_paths: []const []const u8, source: *@This(), source_paths: []const []const u8) !void {
-        const source_path = dest.ptrBuilder().pathJoin(source_paths);
-        const dest_path = dest.ptrBuilder().pathJoin(dest_paths);
+        const source_path = dest.pathJoin(source_paths);
+        const dest_path = dest.pathJoin(dest_paths);
         dest.debug("Copying {s}{s}{s} into {s}{s}{s}", .{
             source.getBuilder().dep_prefix, source.getPrefix(), source_path,
-            dest.getBuilder().dep_prefix, dest.getPrefix(), dest_path,
+            dest.getBuilder().dep_prefix,   dest.getPrefix(),   dest_path,
         });
         try source.ptrDir().copyFile(source_path, dest.ptrDir().*, dest_path, .{});
     }
 
+    fn initWalker(self: *@This(), paths: []const []const u8) !void {
+        self.debug("Allocating ressources for walker", .{});
+        try self.openDir(paths);
+        self.__walker = try self.ptrDir().walk(self.getAllocator());
+    }
+
+    fn deinitWalker(self: *@This()) void {
+        self.debug("Freeing ressources for walker", .{});
+        self.ptrDir().close();
+        self.ptrDir().* = self.ptrCwd();
+        self.ptrWalker().deinit();
+    }
+
     pub fn walk(self: *@This(), paths: []const []const u8) !?std.fs.Dir.Walker.Entry {
-        if (self.getWalker() == null) {
-            self.debug("Allocating ressources for walker", .{});
-            try self.initWalker(paths);
-        }
+        if (self.getWalker() == null) try self.initWalker(paths);
 
         const entry = try self.ptrWalker().next();
         if (entry) |e| {
             self.debug("Walking into {s}{s}{s} {s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), e.path, @tagName(e.kind) });
-        } else {
-            self.debug("Freeing ressources for walker", .{});
-            self.deinitWalker();
-        }
+        } else self.deinitWalker();
         return entry;
+    }
+
+    pub fn readFile(self: *@This(), paths: []const []const u8) ![]const u8 {
+        const path = self.pathJoin(paths);
+        self.debug("Reading {s}", .{path});
+        return self.ptrCwd().readFileAlloc(self.getAllocator(), path, std.math.maxInt(usize));
+    }
+
+    pub fn writeFile(self: *@This(), paths: []const []const u8, content: []const u8) !void {
+        const path = self.pathJoin(paths);
+        self.debug("Writing into {s}", .{path});
+        self.ptrCwd().writeFile(.{ .sub_path = path, .data = content });
     }
 };
 
