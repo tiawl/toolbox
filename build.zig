@@ -96,11 +96,15 @@ pub const VerboseBuilder = struct {
         inline fn needFetch(self: @This()) bool {
             return self.__fetch;
         }
-    };
 
-    inline fn debug(comptime f: []const u8, args: anytype) void {
-        if (options.isVerbose()) std.log.debug(f, args);
-    }
+        inline fn debug(self: @This(), comptime f: []const u8, args: anytype) void {
+            if (self.isVerbose()) std.log.debug(f, args);
+        }
+
+        inline fn err(self: @This(), comptime f: []const u8, args: anytype) void {
+            if (self.isVerbose()) std.log.err(f, args);
+        }
+    };
 
     var optimize: std.builtin.OptimizeMode = undefined;
     var target: std.Build.ResolvedTarget = undefined;
@@ -136,7 +140,7 @@ pub const VerboseBuilder = struct {
     }
 
     pub fn initFromDependency(dep: *std.Build.Dependency) @This() {
-        dep.builder.dep_prefix = dep.builder.dep_prefix[std.mem.indexOfScalar(u8, dep.builder.dep_prefix, '.').? + 1..];
+        dep.builder.dep_prefix = dep.builder.dep_prefix[std.mem.indexOfScalar(u8, dep.builder.dep_prefix, '.').? + 1 ..];
         const other: @This() = .{
             .__builder = dep.builder,
             .__walker = null,
@@ -297,19 +301,19 @@ pub const VerboseBuilder = struct {
         switch (@typeInfo(T)) {
             .pointer => |ptr| {
                 if (ptr.child == u8) {
-                    debug("-D{s} option: {s}", .{ name, opt });
+                    options.debug("-D{s} option: {s}", .{ name, opt });
                     return opt;
                 }
             },
             else => {
-                debug("-D{s} option: {}", .{ name, opt });
+                options.debug("-D{s} option: {}", .{ name, opt });
                 return opt;
             },
         }
     }
 
     pub fn dependency(self: *@This(), name: []const u8) *std.Build.Dependency {
-        debug("Requesting \"{s}\" dependency", .{name});
+        options.debug("Requesting \"{s}\" dependency", .{name});
         return self.ptrBuilder().dependency(name, .{
             .optimize = optimize,
             .target = target,
@@ -317,7 +321,7 @@ pub const VerboseBuilder = struct {
     }
 
     pub fn addExecutable(self: *@This(), name: []const u8) *std.Build.Step.Compile {
-        debug("Creating \"{s}\" executable", .{name});
+        options.debug("Creating \"{s}\" executable", .{name});
         return self.ptrBuilder().addExecutable(.{
             .name = name,
             .root_module = std.Build.Module.create(self.ptrBuilder(), .{
@@ -328,7 +332,7 @@ pub const VerboseBuilder = struct {
     }
 
     pub fn addLibrary(self: *@This(), name: []const u8) *std.Build.Step.Compile {
-        debug("Creating \"{s}\" library", .{name});
+        options.debug("Creating \"{s}\" library", .{name});
         return self.ptrBuilder().addLibrary(.{
             .name = name,
             .root_module = std.Build.Module.create(self.ptrBuilder(), .{
@@ -340,30 +344,30 @@ pub const VerboseBuilder = struct {
     }
 
     pub fn linkLibC(_: *@This(), compile: *std.Build.Step.Compile) void {
-        debug("Linking LibC to \"{s}\" compile step", .{compile.name});
+        options.debug("Linking LibC to \"{s}\" compile step", .{compile.name});
         compile.linkLibC();
     }
 
     pub fn addCSource(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, flags: []const []const u8) void {
         const path = self.resolve(paths);
-        debug("Adding C Source {s} to \"{s}\" compile step", .{ path, compile.name });
+        options.debug("Adding C Source {s} to \"{s}\" compile step", .{ path, compile.name });
         compile.addCSourceFile(.{ .file = self.ptrBuilder().path(path), .flags = flags });
     }
 
     pub fn addInclude(self: *@This(), lib: *std.Build.Step.Compile, paths: []const []const u8) void {
         const path = self.resolve(paths);
-        debug("Including {s} into \"{s}\" library", .{ path, lib.name });
+        options.debug("Including {s} into \"{s}\" library", .{ path, lib.name });
         lib.addIncludePath(self.ptrBuilder().path(path));
     }
 
     pub fn addIncludePath(_: *@This(), lib: *std.Build.Step.Compile, path: std.Build.LazyPath) void {
-        debug("Including {s} into \"{s}\" library", .{ path.generated.sub_path, lib.name });
+        options.debug("Including {s} into \"{s}\" library", .{ path.generated.sub_path, lib.name });
         lib.addIncludePath(path);
     }
 
     pub fn installHeaders(self: *@This(), lib: *std.Build.Step.Compile, source_paths: []const []const u8, dest: []const u8, exts: []const []const u8) void {
         const source_path = self.resolve(source_paths);
-        debug("Installing {s} headers into {s} into {s} library", .{ source_path, dest, lib.name });
+        options.debug("Installing {s} headers into {s} into {s} library", .{ source_path, dest, lib.name });
         lib.installHeadersDirectory(.{
             .cwd_relative = source_path,
         }, dest, .{
@@ -373,7 +377,7 @@ pub const VerboseBuilder = struct {
 
     pub fn run(self: *@This(), argv: []const []const u8, cwd: std.fs.Dir) ![]const u8 {
         std.debug.assert(argv.len != 0);
-        debug("Running \"{s}\"", .{self.join(" ", argv)});
+        options.debug("Running \"{s}\"", .{self.join(" ", argv)});
 
         if (!std.process.can_spawn) return error.ExecNotSupported;
 
@@ -397,58 +401,58 @@ pub const VerboseBuilder = struct {
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
-                    std.log.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
+                    options.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
                     return error.ExitCodeFailure;
                 }
                 const trimmed = std.mem.trim(u8, stdout, &std.ascii.whitespace);
-                if (trimmed.len > 0) debug("Output: \"{s}\"", .{trimmed});
+                if (trimmed.len > 0) options.debug("Output: \"{s}\"", .{trimmed});
                 return trimmed;
             },
             .Signal, .Stopped, .Unknown => |code| {
-                std.log.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
+                options.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
                 return error.ProcessTerminated;
             },
         }
     }
 
     pub fn addRunArtifact(self: *@This(), exe: *std.Build.Step.Compile) *std.Build.Step.Run {
-        debug("Adding a run step from \"{s}\" executable", .{exe.name});
+        options.debug("Adding a run step from \"{s}\" executable", .{exe.name});
         return self.ptrBuilder().addRunArtifact(exe);
     }
 
     pub fn addWriteFiles(self: *@This()) *std.Build.Step.WriteFile {
-        debug("Adding a write files step from", .{});
+        options.debug("Adding a write files step from", .{});
         return self.ptrBuilder().addWriteFiles();
     }
 
     pub fn addCopyFile(self: *@This(), write_file: *std.Build.Step.WriteFile, source: std.Build.LazyPath, paths: []const []const u8) std.Build.LazyPath {
         const path = self.resolve(paths);
-        debug("Placing the {s} file into the generated directory within the local cache", .{path});
+        options.debug("Placing the {s} file into the generated directory within the local cache", .{path});
         return write_file.addCopyFile(source, path);
     }
 
     pub fn expectExitCode(_: @This(), r: *std.Build.Step.Run, code: u8) void {
-        debug("Expecting {d} exit code from \"{s}\" run step", .{ code, r.step.name });
+        options.debug("Expecting {d} exit code from \"{s}\" run step", .{ code, r.step.name });
         r.expectExitCode(code);
     }
 
     pub fn captureStdOut(_: @This(), r: *std.Build.Step.Run) std.Build.LazyPath {
-        debug("Capturing stdout from \"{s}\" run step", .{r.step.name});
+        options.debug("Capturing stdout from \"{s}\" run step", .{r.step.name});
         return r.captureStdOut();
     }
 
     pub fn addArgs(self: @This(), r: *std.Build.Step.Run, args: []const []const u8) void {
-        debug("Running \"{s}\" step with these arguments: \"{s}\"", .{ r.step.name, self.join("\" \"", args) });
+        options.debug("Running \"{s}\" step with these arguments: \"{s}\"", .{ r.step.name, self.join("\" \"", args) });
         r.addArgs(args);
     }
 
     pub fn installArtifact(self: *@This(), compile: *std.Build.Step.Compile) void {
-        debug("Installing \"{s}\" compile step", .{compile.name});
+        options.debug("Installing \"{s}\" compile step", .{compile.name});
         self.ptrBuilder().installArtifact(compile);
     }
 
     pub fn dependOn(_: *@This(), step1: *std.Build.Step, step2: *std.Build.Step) void {
-        debug("Making \"{s}\" step depends on \"{s}\" step", .{ step1.name, step2.name });
+        options.debug("Making \"{s}\" step depends on \"{s}\" step", .{ step1.name, step2.name });
         step1.dependOn(step2);
     }
 
@@ -456,14 +460,14 @@ pub const VerboseBuilder = struct {
 
     pub fn openDir(self: *@This(), paths: []const []const u8) !std.fs.Dir {
         const path = self.resolve(paths);
-        debug("Opening {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
+        options.debug("Opening {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
         return self.ptrCwd().openDir(path, .{ .iterate = true });
     }
 
     // TODO: change ptrDir with ptrCwd ?
     pub fn remove(self: *@This(), paths: []const []const u8) !void {
         const path = self.resolve(paths);
-        debug("Removing {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
+        options.debug("Removing {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
         self.ptrDir().deleteTree(path) catch |err|
             if (err != error.FileNotFound) return err;
     }
@@ -471,7 +475,7 @@ pub const VerboseBuilder = struct {
     // TODO: change ptrDir with ptrCwd ?
     pub fn make(self: *@This(), paths: []const []const u8) !void {
         const path = self.resolve(paths);
-        debug("Making {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
+        options.debug("Making {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
         self.ptrDir().makeDir(path) catch |err|
             if (err != error.PathAlreadyExists) return err;
     }
@@ -480,7 +484,7 @@ pub const VerboseBuilder = struct {
     pub fn copy(dest: *@This(), dest_paths: []const []const u8, source: *@This(), source_paths: []const []const u8) !void {
         const source_path = dest.resolve(source_paths);
         const dest_path = dest.resolve(dest_paths);
-        debug("Copying {s}{s}{s} into {s}{s}{s}", .{
+        options.debug("Copying {s}{s}{s} into {s}{s}{s}", .{
             source.getBuilder().dep_prefix, source.getPrefix(), source_path,
             dest.getBuilder().dep_prefix,   dest.getPrefix(),   dest_path,
         });
@@ -501,7 +505,7 @@ pub const VerboseBuilder = struct {
 
         const entry = try self.ptrIterator().next();
         if (entry) |e| {
-            debug("Iterating into {s}{s}{s} {s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), e.name, @tagName(e.kind) });
+            options.debug("Iterating into {s}{s}{s} {s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), e.name, @tagName(e.kind) });
         } else {
             self.ptrDir().close();
             self.ptrDir().* = self.ptrCwd().*;
@@ -514,7 +518,7 @@ pub const VerboseBuilder = struct {
 
     pub fn walk(self: *@This(), paths: []const []const u8) !?std.fs.Dir.Walker.Entry {
         if (self.getWalker() == null) {
-            debug("Allocating ressources for walker", .{});
+            options.debug("Allocating ressources for walker", .{});
             self.ptrDir().* = try self.openDir(paths);
             const path = self.resolve(paths);
             self.ptrPrefix().* = if (std.mem.eql(u8, path, ".")) "/" else self.concat(&.{ "/", path, "/" });
@@ -523,9 +527,9 @@ pub const VerboseBuilder = struct {
 
         const entry = try self.ptrWalker().next();
         if (entry) |e| {
-            debug("Walking into {s}{s}{s} {s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), e.path, @tagName(e.kind) });
+            options.debug("Walking into {s}{s}{s} {s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), e.path, @tagName(e.kind) });
         } else {
-            debug("Freeing ressources for walker", .{});
+            options.debug("Freeing ressources for walker", .{});
             self.ptrDir().close();
             self.ptrDir().* = self.ptrCwd().*;
             self.ptrPrefix().* = "/";
@@ -538,13 +542,13 @@ pub const VerboseBuilder = struct {
 
     pub fn readFile(self: *@This(), paths: []const []const u8) ![]const u8 {
         const path = self.resolve(paths);
-        debug("Reading {s}", .{path});
+        options.debug("Reading {s}", .{path});
         return self.ptrCwd().readFileAlloc(self.getAllocator(), path, std.math.maxInt(usize));
     }
 
     pub fn writeFile(self: *@This(), paths: []const []const u8, content: []const u8) !void {
         const path = self.resolve(paths);
-        debug("Writing into {s}", .{path});
+        options.debug("Writing into {s}", .{path});
         try self.ptrCwd().writeFile(.{ .sub_path = path, .data = content });
     }
 };
