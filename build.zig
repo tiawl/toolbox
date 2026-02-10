@@ -8,6 +8,12 @@ pub const ext = struct {
         pub const file = ext.c.source ++ ext.c.header;
     };
 
+    pub const obj_c = struct {
+        pub const source = [_][]const u8{".m"};
+        pub const header = ext.c.header;
+        pub const file = ext.obj_c.source ++ ext.obj_c.header;
+    };
+
     pub const cpp = struct {
         pub const source = struct {
             pub const strict = [_][]const u8{ ".cc", ".cpp", ".cxx" };
@@ -57,6 +63,10 @@ pub inline fn isCOrCppFile(name: []const u8) bool {
 
 pub inline fn isCSource(name: []const u8) bool {
     return checkExt(name, &ext.c.source);
+}
+
+pub inline fn isObjCSource(name: []const u8) bool {
+    return checkExt(name, &ext.obj_c.source);
 }
 
 pub inline fn isCppSource(name: []const u8) bool {
@@ -268,6 +278,10 @@ pub const VerboseBuilder = struct {
         try self.ptrEnvMap().put(key, value);
     }
 
+    pub inline fn getOs(_: *@This()) std.Target.Os.Tag {
+        return target.result.os.tag;
+    }
+
     // std.mem wrappers -------------------------------------------------------
 
     pub inline fn resolve(self: *@This(), paths: []const []const u8) []const u8 {
@@ -317,7 +331,14 @@ pub const VerboseBuilder = struct {
         return self.ptrBuilder().dependency(name, .{
             .optimize = optimize,
             .target = target,
+            .verbose = options.isVerbose(),
         });
+    }
+
+    pub fn artifact(self: *@This(), dep: *std.Build.Dependency, name: []const u8) *std.Build.Step.Compile {
+        const compile = dep.artifact(name);
+        options.debug("Requesting \"{s}\" {s} from \"{s}\" dependency", .{ name, self.kind(compile), dep.builder.dep_prefix[0 .. dep.builder.dep_prefix.len - 1] });
+        return compile;
     }
 
     pub fn addExecutable(self: *@This(), name: []const u8) *std.Build.Step.Compile {
@@ -332,7 +353,7 @@ pub const VerboseBuilder = struct {
     }
 
     pub fn addLibrary(self: *@This(), name: []const u8) *std.Build.Step.Compile {
-        options.debug("Creating \"{s}\" library", .{name});
+        options.debug("Creating \"{s}\" static library", .{name});
         return self.ptrBuilder().addLibrary(.{
             .name = name,
             .root_module = std.Build.Module.create(self.ptrBuilder(), .{
@@ -343,36 +364,70 @@ pub const VerboseBuilder = struct {
         });
     }
 
-    pub fn linkLibC(_: *@This(), compile: *std.Build.Step.Compile) void {
-        options.debug("Linking LibC to \"{s}\" compile step", .{compile.name});
+    pub fn kind(self: *@This(), compile: *std.Build.Step.Compile) []const u8 {
+        return switch (compile.kind) {
+            .lib => self.fmt("{s} library", .{std.enums.tagName(std.builtin.LinkMode, compile.linkage.?).?}),
+            .exe => "executable",
+            else => @tagName(compile.kind),
+        };
+    }
+
+    pub fn unsanitizeC(self: *@This(), compile: *std.Build.Step.Compile) void {
+        options.debug("Unsanitizing C to \"{s}\" {s}", .{ compile.name, self.kind(compile) });
+        compile.root_module.sanitize_c = .off;
+    }
+
+    pub fn linkLibC(self: *@This(), compile: *std.Build.Step.Compile) void {
+        options.debug("Linking LibC to \"{s}\" {s}", .{ compile.name, self.kind(compile) });
         compile.linkLibC();
+    }
+
+    pub fn linkLibrary(self: *@This(), compile1: *std.Build.Step.Compile, compile2: *std.Build.Step.Compile) void {
+        options.debug("Linking \"{s}\" {s} to \"{s}\" {s}", .{ compile2.name, self.kind(compile2), compile1.name, self.kind(compile1) });
+        compile1.linkLibrary(compile2);
+    }
+
+    pub fn linkSystemLibrary(self: *@This(), compile: *std.Build.Step.Compile, name: []const u8) void {
+        options.debug("Linking \"{s}\" system library to \"{s}\" {s}", .{ name, compile.name, self.kind(compile) });
+        compile.linkSystemLibrary(name);
+    }
+
+    pub fn linkFramework(self: *@This(), compile: *std.Build.Step.Compile, name: []const u8) void {
+        options.debug("Linking \"{s}\" framework to \"{s}\" {s}", .{ name, compile.name, self.kind(compile) });
+        compile.linkFramework(name);
     }
 
     pub fn addCSource(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, flags: []const []const u8) void {
         const path = self.resolve(paths);
-        options.debug("Adding C Source {s} to \"{s}\" compile step", .{ path, compile.name });
+        options.debug("Adding C Source {s} to \"{s}\" {s}", .{ path, compile.name, self.kind(compile) });
         compile.addCSourceFile(.{ .file = self.ptrBuilder().path(path), .flags = flags });
     }
 
-    pub fn addInclude(self: *@This(), lib: *std.Build.Step.Compile, paths: []const []const u8) void {
+    pub fn addInclude(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8) void {
         const path = self.resolve(paths);
-        options.debug("Including {s} into \"{s}\" library", .{ path, lib.name });
-        lib.addIncludePath(self.ptrBuilder().path(path));
+        options.debug("Including {s} into \"{s}\" {s}", .{ path, compile.name, self.kind(compile) });
+        compile.addIncludePath(self.ptrBuilder().path(path));
     }
 
-    pub fn addIncludePath(_: *@This(), lib: *std.Build.Step.Compile, path: std.Build.LazyPath) void {
-        options.debug("Including {s} into \"{s}\" library", .{ path.generated.sub_path, lib.name });
-        lib.addIncludePath(path);
+    pub fn addIncludePath(self: *@This(), compile: *std.Build.Step.Compile, path: std.Build.LazyPath) void {
+        switch (path) {
+            .generated => |*lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy.sub_path, compile.name, self.kind(compile) }),
+            .src_path => |*lazy| options.debug("Including {s}{s} into \"{s}\" {s}", .{ lazy.owner.dep_prefix, lazy.sub_path, compile.name, self.kind(compile) }),
+            .dependency => |*lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy.sub_path, compile.name, self.kind(compile) }),
+            .cwd_relative => |lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy, compile.name, self.kind(compile) }),
+        }
+        compile.addIncludePath(path);
     }
 
-    pub fn installHeaders(self: *@This(), lib: *std.Build.Step.Compile, source_paths: []const []const u8, dest: []const u8, exts: []const []const u8) void {
+    pub fn installLibraryHeaders(self: *@This(), compile1: *std.Build.Step.Compile, compile2: *std.Build.Step.Compile) void {
+        options.debug("Forwarding headers marked for installation from \"{s}\" {s} to \"{s}\" {s}", .{ compile2.name, self.kind(compile2), compile1.name, self.kind(compile1) });
+        compile1.installLibraryHeaders(compile2);
+    }
+
+    pub fn installHeaders(self: *@This(), compile: *std.Build.Step.Compile, source_paths: []const []const u8, dest: []const u8, exts: []const []const u8) void {
         const source_path = self.resolve(source_paths);
-        options.debug("Installing {s} headers into {s} into {s} library", .{ source_path, dest, lib.name });
-        lib.installHeadersDirectory(.{
-            .cwd_relative = source_path,
-        }, dest, .{
-            .include_extensions = exts,
-        });
+        options.debug("Installing {s} headers into {s} into \"{s}\" {s}", .{ source_path, dest, compile.name, self.kind(compile) });
+        compile.installHeadersDirectory(.{ .cwd_relative = source_path }, dest, .{ .include_extensions = exts });
     }
 
     pub fn run(self: *@This(), argv: []const []const u8, cwd: std.fs.Dir) ![]const u8 {
@@ -415,9 +470,9 @@ pub const VerboseBuilder = struct {
         }
     }
 
-    pub fn addRunArtifact(self: *@This(), exe: *std.Build.Step.Compile) *std.Build.Step.Run {
-        options.debug("Adding a run step from \"{s}\" executable", .{exe.name});
-        return self.ptrBuilder().addRunArtifact(exe);
+    pub fn addRunArtifact(self: *@This(), compile: *std.Build.Step.Compile) *std.Build.Step.Run {
+        options.debug("Adding a run step from \"{s}\" {s}", .{ compile.name, self.kind(compile) });
+        return self.ptrBuilder().addRunArtifact(compile);
     }
 
     pub fn addWriteFiles(self: *@This()) *std.Build.Step.WriteFile {
@@ -447,7 +502,7 @@ pub const VerboseBuilder = struct {
     }
 
     pub fn installArtifact(self: *@This(), compile: *std.Build.Step.Compile) void {
-        options.debug("Installing \"{s}\" compile step", .{compile.name});
+        options.debug("Installing \"{s}\" {s}", .{ compile.name, self.kind(compile) });
         self.ptrBuilder().installArtifact(compile);
     }
 
