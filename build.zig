@@ -356,6 +356,7 @@ pub const VerboseBuilder = struct {
         options.debug("Creating \"{s}\" static library", .{name});
         return self.ptrBuilder().addLibrary(.{
             .name = name,
+            .linkage = .static,
             .root_module = std.Build.Module.create(self.ptrBuilder(), .{
                 .root_source_file = self.ptrBuilder().addWriteFiles().add("empty.zig", ""),
                 .optimize = optimize,
@@ -501,6 +502,12 @@ pub const VerboseBuilder = struct {
         r.addArgs(args);
     }
 
+    pub fn setCwd(self: *@This(), r: *std.Build.Step.Run, paths: []const []const u8) void {
+        const path = self.resolve(paths);
+        options.debug("Changing current working directory to {s} for \"{s}\" run step", .{ path, r.step.name });
+        r.setCwd(self.ptrBuilder().path(path));
+    }
+
     pub fn installArtifact(self: *@This(), compile: *std.Build.Step.Compile) void {
         options.debug("Installing \"{s}\" {s}", .{ compile.name, self.kind(compile) });
         self.ptrBuilder().installArtifact(compile);
@@ -558,7 +565,17 @@ pub const VerboseBuilder = struct {
             self.__iterator = self.ptrDir().iterate();
         }
 
-        const entry = try self.ptrIterator().next();
+        // skip hidden files
+        const entry = blk: {
+            var next = try self.ptrIterator().next();
+            if (next == null) break :blk null;
+            while (std.mem.startsWith(u8, next.?.name, ".")) {
+                next = try self.ptrIterator().next();
+                if (next == null) break :blk null;
+            }
+            break :blk next;
+        };
+
         if (entry) |e| {
             options.debug("Iterating into {s}{s}{s} {s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), e.name, @tagName(e.kind) });
         } else {
@@ -580,7 +597,21 @@ pub const VerboseBuilder = struct {
             self.__walker = try self.ptrDir().walk(self.getAllocator());
         }
 
-        const entry = try self.ptrWalker().next();
+        // skip hidden files
+        const entry = blk: {
+            var next = try self.ptrWalker().next();
+            if (next == null) break :blk null;
+            var it = std.mem.tokenizeScalar(u8, next.?.path, std.fs.path.sep);
+            while (it.next()) |token| {
+                if (std.mem.startsWith(u8, token, ".")) {
+                    next = try self.ptrWalker().next();
+                    if (next == null) break :blk null;
+                    it = std.mem.tokenizeScalar(u8, next.?.path, std.fs.path.sep);
+                }
+            }
+            break :blk next;
+        };
+
         if (entry) |e| {
             options.debug("Walking into {s}{s}{s} {s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), e.path, @tagName(e.kind) });
         } else {
