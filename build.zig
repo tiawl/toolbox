@@ -8,12 +8,6 @@ pub const ext = struct {
         pub const file = ext.c.source ++ ext.c.header;
     };
 
-    pub const obj_c = struct {
-        pub const source = [_][]const u8{".m"};
-        pub const header = ext.c.header;
-        pub const file = ext.obj_c.source ++ ext.obj_c.header;
-    };
-
     pub const cpp = struct {
         pub const source = struct {
             pub const strict = [_][]const u8{ ".cc", ".cpp", ".cxx" };
@@ -36,6 +30,15 @@ pub const ext = struct {
                 pub const c_compatible = ext.cpp.source.c_compatible ++ ext.cpp.header.@"11".c_compatible;
             };
         };
+    };
+
+    pub const obj = struct {
+        pub const c = struct {
+            pub const source = [_][]const u8{".m"};
+            pub const header = ext.c.header;
+            pub const file = ext.obj.c.source ++ ext.obj.c.header;
+        };
+        pub const cpp = [_][]const u8{".mm"};
     };
 
     pub const xml = struct {
@@ -66,11 +69,15 @@ pub inline fn isCSource(name: []const u8) bool {
 }
 
 pub inline fn isObjCSource(name: []const u8) bool {
-    return checkExt(name, &ext.obj_c.source);
+    return checkExt(name, &ext.obj.c.source);
 }
 
 pub inline fn isCppSource(name: []const u8) bool {
     return checkExt(name, &ext.cpp.source.strict);
+}
+
+pub inline fn isObjCppSource(name: []const u8) bool {
+    return checkExt(name, &ext.obj.cpp.source);
 }
 
 pub inline fn isCOrCppSource(name: []const u8) bool {
@@ -109,6 +116,10 @@ pub const VerboseBuilder = struct {
 
         inline fn debug(self: @This(), comptime f: []const u8, args: anytype) void {
             if (self.isVerbose()) std.log.debug(f, args);
+        }
+
+        inline fn info(self: @This(), comptime f: []const u8, args: anytype) void {
+            if (self.isVerbose()) std.log.info(f, args);
         }
 
         inline fn err(self: @This(), comptime f: []const u8, args: anytype) void {
@@ -210,7 +221,7 @@ pub const VerboseBuilder = struct {
         return self.__builder;
     }
 
-    inline fn ptrBuilder(self: @This()) *std.Build {
+    pub inline fn ptrBuilder(self: @This()) *std.Build {
         return self.__builder;
     }
 
@@ -317,6 +328,9 @@ pub const VerboseBuilder = struct {
                 if (ptr.child == u8) {
                     options.debug("-D{s} option: {s}", .{ name, opt });
                     return opt;
+                } else {
+                    options.debug("-D{s} option: {any}", .{ name, opt });
+                    return opt;
                 }
             },
             else => {
@@ -383,6 +397,11 @@ pub const VerboseBuilder = struct {
         compile.linkLibC();
     }
 
+    pub fn linkLibCpp(self: *@This(), compile: *std.Build.Step.Compile) void {
+        options.debug("Linking LibCpp to \"{s}\" {s}", .{ compile.name, self.kind(compile) });
+        compile.linkLibCpp();
+    }
+
     pub fn linkLibrary(self: *@This(), compile1: *std.Build.Step.Compile, compile2: *std.Build.Step.Compile) void {
         options.debug("Linking \"{s}\" {s} to \"{s}\" {s}", .{ compile2.name, self.kind(compile2), compile1.name, self.kind(compile1) });
         compile1.linkLibrary(compile2);
@@ -400,8 +419,19 @@ pub const VerboseBuilder = struct {
 
     pub fn addCSource(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, flags: []const []const u8) void {
         const path = self.resolve(paths);
-        options.debug("Adding C Source {s} to \"{s}\" {s}", .{ path, compile.name, self.kind(compile) });
+        const joined_flags = self.join("\", \"", flags);
+        options.debug("Adding C Source {s} to \"{s}\" {s} with these flags: \"{s}\"", .{ path, compile.name, self.kind(compile), joined_flags });
         compile.addCSourceFile(.{ .file = self.ptrBuilder().path(path), .flags = flags });
+    }
+
+    pub fn addCMacro(_: *@This(), compile: *std.Build.Step.Compile, key: []const u8, value: []const u8) void {
+        options.debug("Adding C macro: {s} {s}", .{ key, value });
+        compile.root_module.addCMacro(key, value);
+    }
+
+    pub fn addImport(self: *@This(), compile: *std.Build.Step.Compile, name: []const u8, module: *std.Build.Module) void {
+        options.debug("Adding {s} module to be used with @import into \"{s}\" {s}", .{ name, compile.name, self.kind(compile) });
+        compile.root_module.addImport(name, module);
     }
 
     pub fn addInclude(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8) void {
@@ -441,31 +471,40 @@ pub const VerboseBuilder = struct {
         var child = std.process.Child.init(argv, self.getAllocator());
         child.stdin_behavior = .Ignore;
         child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Ignore;
+        child.stderr_behavior = .Pipe;
         child.cwd_dir = cwd;
         child.env_map = &self.ptrBuilder().graph.env_map;
 
+        var stdout: std.ArrayList(u8) = .empty;
+        defer stdout.deinit(self.getAllocator());
+        var stderr: std.ArrayList(u8) = .empty;
+        defer stderr.deinit(self.getAllocator());
+
         try std.Build.Step.handleVerbose2(self.ptrBuilder(), null, child.env_map, argv);
         try child.spawn();
-
-        const stdout = child.stdout.?.deprecatedReader().readAllAlloc(self.getAllocator(), max_output_size) catch {
-            return error.ReadFailure;
-        };
-        errdefer self.getAllocator().free(stdout);
+        errdefer {
+            _ = child.kill() catch {};
+        }
+        try child.collectOutput(self.getAllocator(), &stdout, &stderr, max_output_size);
 
         const term = try child.wait();
         switch (term) {
             .Exited => |code| {
                 if (code != 0) {
                     options.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
+                    var it = std.mem.tokenizeScalar(u8, stderr.items, '\n');
+                    while (it.next()) |line| options.err("  {s}", .{line});
                     return error.ExitCodeFailure;
                 }
-                const trimmed = std.mem.trim(u8, stdout, &std.ascii.whitespace);
-                if (trimmed.len > 0) options.debug("Output: \"{s}\"", .{trimmed});
+                const trimmed = std.mem.trim(u8, stdout.toOwnedSlice(self.getAllocator()) catch @panic("OOM"), &std.ascii.whitespace);
+                var it = std.mem.tokenizeScalar(u8, trimmed, '\n');
+                while (it.next()) |line| options.info("   {s}", .{line});
                 return trimmed;
             },
             .Signal, .Stopped, .Unknown => |code| {
                 options.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
+                var it = std.mem.tokenizeScalar(u8, stderr.items, '\n');
+                while (it.next()) |line| options.err("  {s}", .{line});
                 return error.ProcessTerminated;
             },
         }
@@ -526,23 +565,27 @@ pub const VerboseBuilder = struct {
         return self.ptrCwd().openDir(path, .{ .iterate = true });
     }
 
-    // TODO: change ptrDir with ptrCwd ?
+    pub fn access(self: *@This(), paths: []const []const u8) bool {
+        const path = self.resolve(paths);
+        const res = !std.meta.isError(self.ptrCwd().access(path, .{}));
+        if (res) options.debug("Accessing {s}", .{path}) else options.debug("Can not access {s}", .{path});
+        return res;
+    }
+
     pub fn remove(self: *@This(), paths: []const []const u8) !void {
         const path = self.resolve(paths);
         options.debug("Removing {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
-        self.ptrDir().deleteTree(path) catch |err|
+        self.ptrCwd().deleteTree(path) catch |err|
             if (err != error.FileNotFound) return err;
     }
 
-    // TODO: change ptrDir with ptrCwd ?
     pub fn make(self: *@This(), paths: []const []const u8) !void {
         const path = self.resolve(paths);
         options.debug("Making {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
-        self.ptrDir().makeDir(path) catch |err|
+        self.ptrCwd().makeDir(path) catch |err|
             if (err != error.PathAlreadyExists) return err;
     }
 
-    // TODO: change ptrDir with ptrCwd ?
     pub fn copy(dest: *@This(), dest_paths: []const []const u8, source: *@This(), source_paths: []const []const u8) !void {
         const source_path = dest.resolve(source_paths);
         const dest_path = dest.resolve(dest_paths);
@@ -550,11 +593,8 @@ pub const VerboseBuilder = struct {
             source.getBuilder().dep_prefix, source.getPrefix(), source_path,
             dest.getBuilder().dep_prefix,   dest.getPrefix(),   dest_path,
         });
-        dest.ptrDir().access(dest_path, .{}) catch {
-            try source.ptrDir().copyFile(source_path, dest.ptrDir().*, dest_path, .{});
-            return;
-        };
-        return error.OverwritingCopy;
+        if (dest.access(dest_paths)) return error.OverwritingCopy;
+        try source.ptrCwd().copyFile(source_path, dest.ptrCwd().*, dest_path, .{});
     }
 
     pub fn iterate(self: *@This(), paths: []const []const u8) !?std.fs.Dir.Entry {
