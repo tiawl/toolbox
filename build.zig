@@ -6,6 +6,7 @@ pub const ext = struct {
         pub const source = [_][]const u8{".c"};
         pub const header = [_][]const u8{".h"};
         pub const file = ext.c.source ++ ext.c.header;
+        pub const template = [_][]const u8 {".h.in"};
     };
 
     pub const cpp = struct {
@@ -86,6 +87,10 @@ pub inline fn isCOrCppSource(name: []const u8) bool {
 
 pub inline fn isCHeader(name: []const u8) bool {
     return checkExt(name, &ext.c.header);
+}
+
+pub inline fn isCTemplate(name: []const u8) bool {
+    return checkExt(name, &ext.c.template);
 }
 
 pub inline fn isCppHeader(name: []const u8) bool {
@@ -345,6 +350,14 @@ pub const VerboseBuilder = struct {
         return self.ptrBuilder().dependency(name, .{
             .optimize = optimize,
             .target = target,
+        });
+    }
+
+    pub fn verboseDependency(self: *@This(), name: []const u8) *std.Build.Dependency {
+        options.debug("Requesting \"{s}\" dependency", .{name});
+        return self.ptrBuilder().dependency(name, .{
+            .optimize = optimize,
+            .target = target,
             .verbose = options.isVerbose(),
         });
     }
@@ -394,12 +407,12 @@ pub const VerboseBuilder = struct {
 
     pub fn linkLibC(self: *@This(), compile: *std.Build.Step.Compile) void {
         options.debug("Linking LibC to \"{s}\" {s}", .{ compile.name, self.kind(compile) });
-        compile.linkLibC();
+        compile.root_module.link_libc = true;
     }
 
     pub fn linkLibCpp(self: *@This(), compile: *std.Build.Step.Compile) void {
         options.debug("Linking LibCpp to \"{s}\" {s}", .{ compile.name, self.kind(compile) });
-        compile.linkLibCpp();
+        compile.root_module.link_libcpp = true;
     }
 
     pub fn linkLibrary(self: *@This(), compile1: *std.Build.Step.Compile, compile2: *std.Build.Step.Compile) void {
@@ -450,15 +463,34 @@ pub const VerboseBuilder = struct {
         compile.addIncludePath(path);
     }
 
+    pub fn addConfigHeader(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, style: std.meta.Tag(std.Build.Step.ConfigHeader.Style), macros: anytype) void {
+        std.debug.assert(std.meta.activeTag(@typeInfo(@TypeOf(macros))) == .@"struct");
+        const path = self.resolve(paths);
+        options.debug("Adding a C header file from {s} {s} template input file into \"{s}\" {s}", .{path, @tagName(style), compile.name, self.kind(compile)});
+        inline for (std.meta.fields(@TypeOf(macros))) |field| {
+            switch (@typeInfo(field.@"type")) {
+                .pointer => |ptr| if (ptr.child == u8) options.debug("Defining {s} {s} into C header file", .{field.name, @field(macros, field.name)}),
+                else => options.debug("Defining {s} {} into C header file", .{field.name, @field(macros, field.name)}),
+            }
+        }
+        const config_header = self.ptrBuilder().addConfigHeader(.{ .style = switch (style) {
+            .autoconf_undef => .{.autoconf_undef = self.ptrBuilder().path(path)},
+            .autoconf_at => .{.autoconf_at = self.ptrBuilder().path(path)},
+            else => unreachable,
+        }, .include_path = std.fs.path.stem(std.fs.path.basename(path)) }, macros);
+        compile.root_module.addConfigHeader(config_header);
+    }
+
     pub fn installLibraryHeaders(self: *@This(), compile1: *std.Build.Step.Compile, compile2: *std.Build.Step.Compile) void {
         options.debug("Forwarding headers marked for installation from \"{s}\" {s} to \"{s}\" {s}", .{ compile2.name, self.kind(compile2), compile1.name, self.kind(compile1) });
         compile1.installLibraryHeaders(compile2);
     }
 
-    pub fn installHeaders(self: *@This(), compile: *std.Build.Step.Compile, source_paths: []const []const u8, dest: []const u8, exts: []const []const u8) void {
+    pub fn installHeader(self: *@This(), compile: *std.Build.Step.Compile, source_paths: []const []const u8, dest_paths: []const []const u8) void {
         const source_path = self.resolve(source_paths);
-        options.debug("Installing {s} headers into {s} into \"{s}\" {s}", .{ source_path, dest, compile.name, self.kind(compile) });
-        compile.installHeadersDirectory(.{ .cwd_relative = source_path }, dest, .{ .include_extensions = exts });
+        const dest_path = self.resolve(dest_paths);
+        options.debug("Installing {s} into {s} into \"{s}\" {s}", .{ source_path, dest_path, compile.name, self.kind(compile) });
+        compile.installHeader(self.ptrBuilder().path(source_path), dest_path);
     }
 
     pub fn run(self: *@This(), argv: []const []const u8, cwd: std.fs.Dir) ![]const u8 {
