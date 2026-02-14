@@ -6,7 +6,7 @@ pub const ext = struct {
         pub const source = [_][]const u8{".c"};
         pub const header = [_][]const u8{".h"};
         pub const file = ext.c.source ++ ext.c.header;
-        pub const template = [_][]const u8 {".h.in"};
+        pub const template = [_][]const u8{".h.in"};
     };
 
     pub const cpp = struct {
@@ -45,6 +45,10 @@ pub const ext = struct {
     pub const xml = struct {
         pub const file = [_][]const u8{".xml"};
     };
+
+    pub const include = struct {
+        pub const file = [_][]const u8{".inc"};
+    };
 };
 
 inline fn checkExt(name: []const u8, exts: []const []const u8) bool {
@@ -55,6 +59,10 @@ inline fn checkExt(name: []const u8, exts: []const []const u8) bool {
 
 pub inline fn isXmlFile(name: []const u8) bool {
     return checkExt(name, &ext.xml.file);
+}
+
+pub inline fn isIncludeFile(name: []const u8) bool {
+    return checkExt(name, &ext.include.file);
 }
 
 pub inline fn isCFile(name: []const u8) bool {
@@ -89,16 +97,20 @@ pub inline fn isCHeader(name: []const u8) bool {
     return checkExt(name, &ext.c.header);
 }
 
-pub inline fn isCTemplate(name: []const u8) bool {
-    return checkExt(name, &ext.c.template);
-}
-
 pub inline fn isCppHeader(name: []const u8) bool {
     return checkExt(name, &ext.cpp.header.strict);
 }
 
 pub inline fn isCOrCppHeader(name: []const u8) bool {
     return checkExt(name, &ext.cpp.header.c_compatible);
+}
+
+pub inline fn isCOrCpp11Header(name: []const u8) bool {
+    return checkExt(name, &ext.cpp.header.@"11".c_compatible);
+}
+
+pub inline fn isCTemplate(name: []const u8) bool {
+    return checkExt(name, &ext.c.template);
 }
 
 pub const VerboseBuilder = struct {
@@ -466,16 +478,16 @@ pub const VerboseBuilder = struct {
     pub fn addConfigHeader(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, style: std.meta.Tag(std.Build.Step.ConfigHeader.Style), macros: anytype) void {
         std.debug.assert(std.meta.activeTag(@typeInfo(@TypeOf(macros))) == .@"struct");
         const path = self.resolve(paths);
-        options.debug("Adding a C header file from {s} {s} template input file into \"{s}\" {s}", .{path, @tagName(style), compile.name, self.kind(compile)});
+        options.debug("Adding a C header file from {s} {s} template input file into \"{s}\" {s}", .{ path, @tagName(style), compile.name, self.kind(compile) });
         inline for (std.meta.fields(@TypeOf(macros))) |field| {
-            switch (@typeInfo(field.@"type")) {
-                .pointer => |ptr| if (ptr.child == u8) options.debug("Defining {s} {s} into C header file", .{field.name, @field(macros, field.name)}),
-                else => options.debug("Defining {s} {} into C header file", .{field.name, @field(macros, field.name)}),
+            switch (@typeInfo(field.type)) {
+                .pointer => |ptr| if (ptr.child == u8) options.debug("Defining {s} {s} into C header file", .{ field.name, @field(macros, field.name) }),
+                else => options.debug("Defining {s} {} into C header file", .{ field.name, @field(macros, field.name) }),
             }
         }
         const config_header = self.ptrBuilder().addConfigHeader(.{ .style = switch (style) {
-            .autoconf_undef => .{.autoconf_undef = self.ptrBuilder().path(path)},
-            .autoconf_at => .{.autoconf_at = self.ptrBuilder().path(path)},
+            .autoconf_undef => .{ .autoconf_undef = self.ptrBuilder().path(path) },
+            .autoconf_at => .{ .autoconf_at = self.ptrBuilder().path(path) },
             else => unreachable,
         }, .include_path = std.fs.path.stem(std.fs.path.basename(path)) }, macros);
         compile.root_module.addConfigHeader(config_header);
@@ -621,9 +633,10 @@ pub const VerboseBuilder = struct {
     pub fn copy(dest: *@This(), dest_paths: []const []const u8, source: *@This(), source_paths: []const []const u8) !void {
         const source_path = dest.resolve(source_paths);
         const dest_path = dest.resolve(dest_paths);
-        options.debug("Copying {s}{s}{s} into {s}{s}{s}", .{
-            source.getBuilder().dep_prefix, source.getPrefix(), source_path,
-            dest.getBuilder().dep_prefix,   dest.getPrefix(),   dest_path,
+        options.debug("Copying {s}/{s} into {s}{s}{s}", .{
+            source.getBuilder().dep_prefix, source_path,
+            dest.getBuilder().dep_prefix,   dest.getPrefix(),
+            dest_path,
         });
         if (dest.access(dest_paths)) return error.OverwritingCopy;
         try source.ptrCwd().copyFile(source_path, dest.ptrCwd().*, dest_path, .{});
