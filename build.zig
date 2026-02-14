@@ -73,6 +73,10 @@ pub inline fn isCOrCppFile(name: []const u8) bool {
     return checkExt(name, &ext.cpp.file.c_compatible);
 }
 
+pub inline fn isCOrCpp11File(name: []const u8) bool {
+    return checkExt(name, &ext.cpp.file.@"11".c_compatible);
+}
+
 pub inline fn isCSource(name: []const u8) bool {
     return checkExt(name, &ext.c.source);
 }
@@ -310,6 +314,10 @@ pub const VerboseBuilder = struct {
         return target.result.os.tag;
     }
 
+    pub inline fn getArgs(self: @This()) []const []const u8 {
+        return self.getBuilder().args orelse &.{};
+    }
+
     // std.mem wrappers -------------------------------------------------------
 
     pub inline fn resolve(self: *@This(), paths: []const []const u8) []const u8 {
@@ -355,6 +363,11 @@ pub const VerboseBuilder = struct {
                 return opt;
             },
         }
+    }
+
+    pub fn step(self: *@This(), name: []const u8, description: []const u8) *std.Build.Step {
+        options.debug("Creating \"{s}\" step described \"{s}\"", .{ name, description });
+        return self.ptrBuilder().step(name, description);
     }
 
     pub fn dependency(self: *@This(), name: []const u8) *std.Build.Dependency {
