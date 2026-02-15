@@ -488,6 +488,11 @@ pub const VerboseBuilder = struct {
         compile.addIncludePath(path);
     }
 
+    pub fn addConfigHeaderIntoCompile(self: *@This(), compile: *std.Build.Step.Compile, config_header: *std.Build.Step.ConfigHeader) void {
+        options.debug("Adding {s} C header file into \"{s}\" {s}", .{ config_header.getiOutputFile().generated.sub_path, compile.name, self.kind(compile) });
+        compile.root_module.addConfigHeader(config_header);
+    }
+
     pub fn addConfigHeader(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, style: std.meta.Tag(std.Build.Step.ConfigHeader.Style), macros: anytype) void {
         std.debug.assert(std.meta.activeTag(@typeInfo(@TypeOf(macros))) == .@"struct");
         const path = self.resolve(paths);
