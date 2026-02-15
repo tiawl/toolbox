@@ -493,21 +493,23 @@ pub const VerboseBuilder = struct {
         compile.root_module.addConfigHeader(config_header);
     }
 
-    pub fn addConfigHeader(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, style: std.meta.Tag(std.Build.Step.ConfigHeader.Style), macros: anytype) void {
+    pub fn addConfigHeader(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, includes: []const []const u8, style: std.meta.Tag(std.Build.Step.ConfigHeader.Style), macros: anytype) void {
         std.debug.assert(std.meta.activeTag(@typeInfo(@TypeOf(macros))) == .@"struct");
-        const path = self.resolve(paths);
+        var include = self.resolve(includes);
+        include = include[0 .. std.mem.lastIndexOfScalar(u8, include, '.') orelse include.len];
+        const path = self.fmt("{s}/{s}.in", .{ self.resolve(paths), include });
         options.debug("Adding a C header file from {s} {s} template input file into \"{s}\" {s}", .{ path, @tagName(style), compile.name, self.kind(compile) });
         inline for (std.meta.fields(@TypeOf(macros))) |field| {
             switch (@typeInfo(field.type)) {
-                .pointer => |ptr| if (ptr.child == u8) options.debug("Defining {s} {s} into C header file", .{ field.name, @field(macros, field.name) }),
-                else => options.debug("Defining {s} {} into C header file", .{ field.name, @field(macros, field.name) }),
+                .pointer => |ptr| if (ptr.child == u8) options.debug("Defining {s} {s} into {s}", .{ field.name, @field(macros, field.name), include }),
+                else => options.debug("Defining {s} {} into {s}", .{ field.name, @field(macros, field.name), include }),
             }
         }
         const config_header = self.ptrBuilder().addConfigHeader(.{ .style = switch (style) {
             .autoconf_undef => .{ .autoconf_undef = self.ptrBuilder().path(path) },
             .autoconf_at => .{ .autoconf_at = self.ptrBuilder().path(path) },
             else => unreachable,
-        }, .include_path = std.fs.path.stem(std.fs.path.basename(path)) }, macros);
+        }, .include_path = include }, macros);
         compile.root_module.addConfigHeader(config_header);
     }
 
