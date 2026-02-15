@@ -1,16 +1,16 @@
 # Toolbox
 
-A toolkit to package & maintain C APIs for [Zig][2]
+A wrapper around `std.Build` to make debugging easier for C APIs I package & maintain for [Zig][2]
 
 ## Important note
 
-This package was originally thought for the [tiawl/spaceporn][1] dependencies chain. It is actively used in it. BUT it is also possible to use it in other projects. However maybe some features are always binded to its original conception guideline. For this reason, this repository is open to breaking proposals. So if you are using it for your own needs, expect breaking (but also documented) changes for each release.
+This package was originally thought for the [tiawl/spaceporn][1] dependencies chain. It is actively used in it. For this reason, I do not recommend using it outside of this scope. But this is also a good reason to make it evolve in a way that could answer other needs. So this repository is open to breaking proposals.
 
 If you want to see how to use it you can check repositories list into the [CICD reminder section](https://github.com/tiawl/toolbox/tree/trunk#cicd-reminder).
 
 ## Dependencies
 
-The [Zig][2] part of this package is relying on the latest [Zig][2] release (0.15.1) and will only be updated for the next one.
+The [Zig][2] part of this package is relying on the latest [Zig][2] release (0.15.2) and will only be updated for the next one.
 
 ## CICD reminder
 

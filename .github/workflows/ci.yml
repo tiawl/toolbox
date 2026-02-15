@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: mlugg/setup-zig@v2.0.5
+    - uses: mlugg/setup-zig@v2
     - name: Check zig is canonical
       shell: bash
       run: |
         zig fmt --check .
-  build:
+  user:
     strategy:
       matrix:
         repo:
@@ -48,7 +48,7 @@ jobs:
         repository: "${{ github.repository_owner }}/${{ matrix.repo }}.zig"
 
     - name: Setup Zig
-      uses: mlugg/setup-zig@v2.0.5
+      uses: mlugg/setup-zig@v2
 
     - name: Activate python virtual env & install pip packages
       if: matrix.repo == 'cimgui'
@@ -76,8 +76,10 @@ jobs:
         case "${REPO}" in
         ( 'cimgui' )
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-          zig build -Dupdate -Dplatform=GLFW -Drenderer=Vulkan ;;
-        ( * ) zig build -Dupdate ;;
+          platforms="{$(zig build -Dlist-platforms -Dseparator=,)}"
+          renderers="{$(zig build -Dlist-renderers -Dseparator=,)}"
+          eval "zig build -Dupdate -Dverbose -Dplatforms=${platforms} -Drenderers=${renderers}" ;;
+        ( * ) zig build -Dupdate -Dverbose ;;
         esac
 
     - name: Test fetching ${{ matrix.repo }}.zig
@@ -93,7 +95,9 @@ jobs:
         case "${REPO}" in
         ( 'cimgui' )
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-          zig build -Dfetch -Dplatform=GLFW -Drenderer=Vulkan ${opts} ;;
-        ( * ) zig build -Dfetch ${opts} ;;
+          platforms="{$(zig build -Dlist-platforms -Dseparator=,)}"
+          renderers="{$(zig build -Dlist-renderers -Dseparator=,)}"
+          eval "zig build -Dfetch -Dverbose -Dplatforms=${platforms} -Drenderers=${renderers}" ;;
+        ( * ) zig build -Dfetch -Dverbose ${opts} ;;
         esac
         set +f
