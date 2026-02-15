@@ -489,7 +489,7 @@ pub const VerboseBuilder = struct {
     }
 
     pub fn addConfigHeaderIntoCompile(self: *@This(), compile: *std.Build.Step.Compile, config_header: *std.Build.Step.ConfigHeader) void {
-        options.debug("Adding {s} C header file into \"{s}\" {s}", .{ config_header.getiOutputFile().generated.sub_path, compile.name, self.kind(compile) });
+        options.debug("Adding {s} C header file into \"{s}\" {s}", .{ config_header.getOutputFile().generated.sub_path, compile.name, self.kind(compile) });
         compile.root_module.addConfigHeader(config_header);
     }
 
