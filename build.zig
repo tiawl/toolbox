@@ -230,9 +230,9 @@ pub const VerboseBuilder = struct {
             if (uri.query) |_| {
                 const commits = try std.fmt.parseUnsigned(usize, try self.run(&.{ "git", "rev-list", "--count", "--all" }, tmp_dir), 10);
                 for (0..commits) |i| {
-                    latest = self.run(&.{ "git", "describe", "--tags", "--exact-match", self.fmt("HEAD~{}", .{i}) }, tmp_dir) catch |e| switch (e) {
+                    latest = self.run(&.{ "git", "describe", "--tags", "--exact-match", self.fmt("HEAD~{}", .{i}) }, tmp_dir) catch |err| switch (err) {
                         error.ExitCodeFailure => continue,
-                        else => return e,
+                        else => return err,
                     };
                     if (std.mem.indexOfAny(u8, latest, "0123456789.") == null) continue;
                     break;
