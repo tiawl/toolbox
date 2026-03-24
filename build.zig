@@ -332,6 +332,10 @@ pub const VerboseBuilder = struct {
 
     // std.mem wrappers -------------------------------------------------------
 
+    pub inline fn relative(self: *@This(), from: []const u8, to: []const u8) []const u8 {
+        return std.fs.path.relative(self.getAllocator(), ".", null, from, to) catch @panic("OOM");
+    }
+
     pub inline fn resolve(self: *@This(), paths: []const []const u8) []const u8 {
         return self.ptrBuilder().pathResolve(paths);
     }
@@ -640,6 +644,12 @@ pub const VerboseBuilder = struct {
         const path = self.resolve(paths);
         options.debug("Opening {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), path });
         return self.ptrCwd().openDir(self.getIo(), path, .{ .iterate = true });
+    }
+
+    pub fn closeDir(self: *@This(), dir: std.Io.Dir) void {
+        const build_path = self.ptrCwd().realPathFileAlloc(self.getIo(), ".", self.getAllocator()) catch @panic("std.Io.Dir.realPathFileAlloc failed");
+        const dir_path = dir.realPathFileAlloc(self.getIo(), ".", self.getAllocator()) catch @panic("std.Io.Dir.realPathFileAlloc failed");
+        options.debug("Closing {s}{s}{s}", .{ self.getBuilder().dep_prefix, self.getPrefix(), self.relative(build_path, dir_path) });
     }
 
     pub fn access(self: *@This(), paths: []const []const u8) bool {
