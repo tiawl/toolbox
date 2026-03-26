@@ -232,7 +232,7 @@ pub const VerboseBuilder = struct {
             } else {
                 latest = try self.run(&.{ "git", "rev-parse", "HEAD" }, tmp.dir);
             }
-            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field.name, self.fmt("git+https://{s}{s}#{s}", .{ host, path, latest }) }, self.ptrCwd().*);
+            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field.name, self.fmt("git+https://{s}{s}.git#{s}", .{ host, path, latest }) }, self.ptrCwd().*);
         }
     }
 
