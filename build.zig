@@ -574,14 +574,14 @@ pub const VerboseBuilder = struct {
                 while (it.next()) |line| options.info("   {s}", .{line});
                 return trimmed;
             },
-            .signal => |sig| {
+            .signal, .stopped => |sig| {
                 options.err("System command failed. Signal: \"{d}\"", .{@intFromEnum(sig)});
                 var it = std.mem.tokenizeScalar(u8, result.stderr, '\n');
                 while (it.next()) |line| options.err("  {s}", .{line});
                 self.getAllocator().free(result.stdout);
                 return error.ProcessTerminated;
             },
-            .stopped, .unknown => |code| {
+            .unknown => |code| {
                 options.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
                 var it = std.mem.tokenizeScalar(u8, result.stderr, '\n');
                 while (it.next()) |line| options.err("  {s}", .{line});
