@@ -1,0 +1,29 @@
+name: bot
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  zig-update:
+    strategy:
+      matrix:
+        zig-version:
+          - latest
+          - master
+        branch:
+          - stable
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: "${{ github.repository }}"
+          ref: "${{ matrix.branch }}"
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "${{ matrix.zig-version }}"
+      - name: Build
+        shell: 'bash'
+        run: zig build
