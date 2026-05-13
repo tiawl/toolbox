@@ -14,18 +14,18 @@ jobs:
           - master
     runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v6
-      with:
-        repository: "${{ github.event.pull_request.head.repo.full_name }}"
-        ref: "${{ github.event.pull_request.head.ref }}"
-    - name: Setup zig
-      uses: mlugg/setup-zig@v2
-      with:
-        version: "${{ matrix.zig-version }}"
-        cache-key: "${{ github.job }}_${{ runner.os }}_zig-${{ matrix.zig-version }}_${{ matrix.repo || '' }}"
-    - name: Check zig is canonical
-      shell: 'bash'
-      run: zig fmt --check .
+      - uses: actions/checkout@v6
+        with:
+          repository: "${{ github.event.pull_request.head.repo.full_name }}"
+          ref: "${{ github.event.pull_request.head.ref }}"
+      - name: Setup zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "${{ matrix.zig-version }}"
+          cache-key: "${{ github.job }}_${{ runner.os }}_zig-${{ matrix.zig-version }}_${{ matrix.repo || '' }}"
+      - name: Check zig is canonical
+        shell: 'bash'
+        run: zig fmt --check .
   user:
     strategy:
       matrix:
@@ -43,82 +43,82 @@ jobs:
           - shaderc
     runs-on: ubuntu-24.04
     steps:
-    - name: Install packages
-      env:
-        REPO: "${{ matrix.repo }}"
-      shell: 'bash'
-      run: |
-        set -x
-        case "${REPO}" in
-        ( 'cimgui' )
-          sudo apt-get update --fix-missing
-          sudo apt-get install -y python3-venv mesa-utils
-          printf 'ACTIVATE_DIR=bin\n' >> "${GITHUB_ENV}" ;;
-        ( 'wayland' ) sudo apt-get install -y libwayland-bin ;;
-        ( * ) ;;
-        esac
+      - name: Install packages
+        env:
+          REPO: "${{ matrix.repo }}"
+        shell: 'bash'
+        run: |
+          set -x
+          case "${REPO}" in
+          ( 'cimgui' )
+            sudo apt-get update --fix-missing
+            sudo apt-get install -y python3-venv mesa-utils
+            printf 'ACTIVATE_DIR=bin\n' >> "${GITHUB_ENV}" ;;
+          ( 'wayland' ) sudo apt-get install -y libwayland-bin ;;
+          ( * ) ;;
+          esac
 
-    - uses: actions/checkout@v6
-      with:
-        repository: "${{ github.repository_owner }}/${{ matrix.repo }}.zig"
-        ref: "${{ github.event.pull_request.base.ref }}"
+      - uses: actions/checkout@v6
+        with:
+          repository: "${{ github.repository_owner }}/${{ matrix.repo }}.zig"
+          ref: "${{ github.event.pull_request.base.ref }}"
 
-    - name: Setup Zig
-      uses: mlugg/setup-zig@v2
-      with:
-        version: "${{ matrix.zig-version }}"
-        cache-key: "${{ github.job }}_${{ runner.os }}_zig-${{ matrix.zig-version }}_${{ matrix.repo || '' }}"
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "${{ matrix.zig-version }}"
+          cache-key: "${{ github.job }}_${{ runner.os }}_zig-${{ matrix.zig-version }}_${{ matrix.repo || '' }}"
 
-    - name: Activate python virtual env & install pip packages
-      if: matrix.repo == 'cimgui'
-      env:
-        RUNNER_TMP: "${{ runner.temp }}"
-      shell: 'bash'
-      run: |
-        set -x
-        python3 -m venv "${RUNNER_TMP}/venv"
-        source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-        pip install ply
-
-    - name: Prepare ${{ matrix.repo }}.zig/build.zig.zon
-      env:
-        URL: "git+${{ github.server_url }}/${{ github.event.pull_request.head.repo.full_name }}#${{ github.event.pull_request.head.sha }}"
-      shell: 'bash'
-      run: zig fetch --save "${URL}"
-
-    - name: Test updating ${{ matrix.repo }}.zig
-      env:
-        REPO: "${{ matrix.repo }}"
-        RUNNER_TMP: "${{ runner.temp }}"
-      shell: 'bash'
-      run: |
-        set -x
-        case "${REPO}" in
-        ( 'cimgui' )
+      - name: Activate python virtual env & install pip packages
+        if: matrix.repo == 'cimgui'
+        env:
+          RUNNER_TMP: "${{ runner.temp }}"
+        shell: 'bash'
+        run: |
+          set -x
+          python3 -m venv "${RUNNER_TMP}/venv"
           source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-          platforms="{$(zig build -Dlist-platforms -Dseparator=,)}"
-          renderers="{$(zig build -Dlist-renderers -Dseparator=,)}"
-          eval "zig build -Dupdate -Dverbose -Dplatforms=${platforms} -Drenderers=${renderers}" ;;
-        ( * ) zig build -Dupdate -Dverbose ;;
-        esac
+          pip install ply
 
-    - name: Test fetching ${{ matrix.repo }}.zig
-      env:
-        REPO: "${{ matrix.repo }}"
-        RUNNER_TMP: "${{ runner.temp }}"
-      shell: 'bash'
-      run: |
-        set -x
-        opts="$(printf '%s' "${PR_BODY}" | sed -n "s/^\[${REPO} fetch opts\] \(.*\)/\1/p" | xargs)"
-        opts="${opts#"${opts%%[![:space:]]*}"}"
-        opts="${opts%"${opts##*[![:space:]]}"}"
-        set -f
-        case "${REPO}" in
-        ( 'cimgui' )
-          source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-          platforms="{$(zig build -Dlist-platforms -Dseparator=,)}"
-          renderers="{$(zig build -Dlist-renderers -Dseparator=,)}"
-          eval "zig build -Dfetch -Dverbose -Dplatforms=${platforms} -Drenderers=${renderers}" ;;
-        ( * ) zig build -Dfetch -Dverbose ${opts} ;;
-        esac
-        set +f
+      - name: Prepare ${{ matrix.repo }}.zig/build.zig.zon
+        env:
+          URL: "git+${{ github.server_url }}/${{ github.event.pull_request.head.repo.full_name }}#${{ github.event.pull_request.head.sha }}"
+        shell: 'bash'
+        run: zig fetch --save "${URL}"
+
+      - name: Test updating ${{ matrix.repo }}.zig
+        env:
+          REPO: "${{ matrix.repo }}"
+          RUNNER_TMP: "${{ runner.temp }}"
+        shell: 'bash'
+        run: |
+          set -x
+          case "${REPO}" in
+          ( 'cimgui' )
+            source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
+            platforms="{$(zig build -Dlist-platforms -Dseparator=,)}"
+            renderers="{$(zig build -Dlist-renderers -Dseparator=,)}"
+            eval "zig build -Dupdate -Dverbose -Dplatforms=${platforms} -Drenderers=${renderers}" ;;
+          ( * ) zig build -Dupdate -Dverbose ;;
+          esac
+
+      - name: Test fetching ${{ matrix.repo }}.zig
+        env:
+          REPO: "${{ matrix.repo }}"
+          RUNNER_TMP: "${{ runner.temp }}"
+        shell: 'bash'
+        run: |
+          set -x
+          opts="$(printf '%s' "${PR_BODY}" | sed -n "s/^\[${REPO} fetch opts\] \(.*\)/\1/p" | xargs)"
+          opts="${opts#"${opts%%[![:space:]]*}"}"
+          opts="${opts%"${opts##*[![:space:]]}"}"
+          set -f
+          case "${REPO}" in
+          ( 'cimgui' )
+            source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
+            platforms="{$(zig build -Dlist-platforms -Dseparator=,)}"
+            renderers="{$(zig build -Dlist-renderers -Dseparator=,)}"
+            eval "zig build -Dfetch -Dverbose -Dplatforms=${platforms} -Drenderers=${renderers}" ;;
+          ( * ) zig build -Dfetch -Dverbose ${opts} ;;
+          esac
+          set +f

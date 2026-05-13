@@ -7,23 +7,16 @@ on:
 
 jobs:
   zig-update:
-    strategy:
-      matrix:
-        zig-version:
-          - latest
-          - master
-        branch:
-          - stable
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
           repository: "${{ github.repository }}"
-          ref: "${{ matrix.branch }}"
+          ref: "${{ github.event.repository.default_branch }}"
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: "${{ matrix.zig-version }}"
+          version: 'master'
       - name: Build
         shell: 'bash'
         run: zig build
