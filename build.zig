@@ -203,7 +203,7 @@ pub const VerboseBuilder = struct {
         if (options.needUpdate()) try self.getUpdateFn()(self);
     }
 
-    pub fn fetch(self: *@This(), zon: anytype) !void {
+    pub fn fetch(self: *@This(), zon: anytype, dir: *std.Io.Dir) !void {
         if (!options.needFetch()) return;
         const io = self.getIo();
         inline for (std.meta.fields(@TypeOf(zon.dependencies))) |field| {
@@ -212,20 +212,20 @@ pub const VerboseBuilder = struct {
             const host = (uri.getHostAlloc(self.getAllocator()) catch @panic("OOM")).bytes;
             const path = self.uriComponent(&uri.path);
             const cache_tmp_path = self.resolve(&.{ self.getBuilder().cache_root.path.?, "tmp" });
-            self.ptrCwd().createDir(io, cache_tmp_path, .default_dir) catch |e|
+            dir.createDir(io, cache_tmp_path, .default_dir) catch |e|
                 if (e != error.PathAlreadyExists) return e;
             var random_bytes: [12]u8 = undefined;
             io.random(&random_bytes);
             var sub_path: [std.base64.url_safe.Encoder.calcSize(12)]u8 = undefined;
             _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
             const tmp_path = self.resolve(&.{ cache_tmp_path, &sub_path });
-            defer self.ptrCwd().deleteTree(io, tmp_path) catch {};
+            defer dir.deleteTree(io, tmp_path) catch {};
             if (@hasField(@TypeOf(@field(zon.dependencies, field.name)), "branch")) {
-                _ = try self.run(&.{ "git", "clone", "--bare", "--branch", @field(zon.dependencies, field.name).branch, "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrCwd().*);
+                _ = try self.run(&.{ "git", "clone", "--bare", "--branch", @field(zon.dependencies, field.name).branch, "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, dir.*);
             } else {
-                _ = try self.run(&.{ "git", "clone", "--bare", "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrCwd().*);
+                _ = try self.run(&.{ "git", "clone", "--bare", "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, dir.*);
             }
-            const tmp_dir = self.ptrCwd().openDir(io, tmp_path, .{}) catch return error.ExitCodeFailure;
+            const tmp_dir = dir.openDir(io, tmp_path, .{}) catch return error.ExitCodeFailure;
             var latest: []const u8 = undefined;
             if (uri.query) |_| {
                 const commits = try std.fmt.parseUnsigned(usize, try self.run(&.{ "git", "rev-list", "--count", "--all" }, tmp_dir), 10);
@@ -240,7 +240,7 @@ pub const VerboseBuilder = struct {
             } else {
                 latest = try self.run(&.{ "git", "rev-parse", "HEAD" }, tmp_dir);
             }
-            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field.name, self.fmt("git+https://{s}{s}#{s}", .{ host, path, latest }) }, self.ptrCwd().*);
+            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field.name, self.fmt("git+https://{s}{s}#{s}", .{ host, path, latest }) }, dir.*);
         }
     }
 
