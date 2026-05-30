@@ -79,7 +79,7 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: "${{ matrix.zig-version }}"
-          cache-key: "${{ github.job }}_${{ runner.os }}_zig-${{ matrix.zig-version }}_${{ matrix.repo || '' }}_${{ steps.lastcommit.outputs.sha }}"
+          cache-key: "${{ github.job }}_${{ runner.os }}_zig-${{ matrix.zig-version }}_${{ matrix.repo || '' }}_${{ github.repository }}_${{ steps.lastcommit.outputs.sha }}"
 
       - name: Activate python virtual env & install pip packages
         if: matrix.repo == 'cimgui'
@@ -108,9 +108,11 @@ jobs:
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-            platforms="{$(zig build -Dlist-platforms -Dseparator=,)}"
-            renderers="{$(zig build -Dlist-renderers -Dseparator=,)}"
-            eval "zig build -Dupdate -Dverbose -Dplatforms=${platforms} -Drenderers=${renderers}" ;;
+            renderers="$(zig build -Dlist-renderers -Dseparator=,)"
+            renderers="${renderers:+"-Drenderers={${renderers}}"}"
+            platforms="$(zig build -Dlist-platforms -Dseparator=,)"
+            platforms="${platforms:+"-Dplatforms={${platforms}}"}"
+            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms}" ;;
           ( * ) zig build -Dupdate -Dverbose ;;
           esac
 
@@ -128,9 +130,11 @@ jobs:
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-            platforms="{$(zig build -Dlist-platforms -Dseparator=,)}"
-            renderers="{$(zig build -Dlist-renderers -Dseparator=,)}"
-            eval "zig build -Dfetch -Dverbose -Dplatforms=${platforms} -Drenderers=${renderers}" ;;
+            renderers="$(zig build -Dlist-renderers -Dseparator=,)"
+            renderers="${renderers:+"-Drenderers={${renderers}}"}"
+            platforms="$(zig build -Dlist-platforms -Dseparator=,)"
+            platforms="${platforms:+"-Dplatforms={${platforms}}"}"
+            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms}" ;;
           ( * ) zig build -Dfetch -Dverbose ${opts} ;;
           esac
           set +f
