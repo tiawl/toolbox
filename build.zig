@@ -160,8 +160,8 @@ pub const VerboseBuilder = struct {
     __build_fn: ?*const fn (*@This()) anyerror!void,
     __update_fn: ?*const fn (*@This()) anyerror!void,
 
-    pub fn init(builder: *std.Build, zon: anytype, build_fn: ?*const fn (*@This()) anyerror!void, update_fn: ?*const fn (*@This()) anyerror!void) !@This() {
-        builder.dep_prefix = @tagName(zon.name) ++ ".";
+    pub fn init(builder: *std.Build, comptime name: []const u8, build_fn: ?*const fn (*@This()) anyerror!void, update_fn: ?*const fn (*@This()) anyerror!void) !@This() {
+        builder.dep_prefix = name ++ ".";
         var self: @This() = .{
             .__builder = builder,
             .__walker = null,
@@ -205,12 +205,12 @@ pub const VerboseBuilder = struct {
         if (options.needUpdate()) try self.getUpdateFn()(self);
     }
 
-    pub fn fetch(self: *@This(), zon: anytype, dir: *std.Io.Dir) !void {
+    pub fn fetch(self: *@This(), comptime T: type, comptime dependencies: T, dir: *std.Io.Dir) !void {
         if (!options.needFetch()) return;
         const io = self.getIo();
-        inline for (std.meta.fields(@TypeOf(zon.dependencies))) |field| {
-            if (!@hasField(@TypeOf(@field(zon.dependencies, field.name)), "url")) continue;
-            const uri = try std.Uri.parse(@field(zon.dependencies, field.name).url);
+        inline for (comptime std.meta.fieldNames(T)) |field_name| {
+            if (!@hasField(@TypeOf(@field(dependencies, field_name)), "url")) continue;
+            const uri = try std.Uri.parse(@field(dependencies, field_name).url);
             const host = (uri.getHostAlloc(self.getAllocator()) catch @panic("OOM")).bytes;
             const path = self.uriComponent(&uri.path);
             self.ptrCwd().createDirPath(io, self.resolve(&.{ ".zig-cache", "tmp" })) catch |e|
@@ -221,8 +221,8 @@ pub const VerboseBuilder = struct {
             _ = std.base64.url_safe.Encoder.encode(&sub_path, &random_bytes);
             const tmp_path = self.resolve(&.{ ".zig-cache", "tmp", &sub_path });
             defer self.ptrCwd().deleteTree(io, tmp_path) catch {};
-            if (@hasField(@TypeOf(@field(zon.dependencies, field.name)), "branch")) {
-                _ = try self.run(&.{ "git", "clone", "--bare", "--branch", @field(zon.dependencies, field.name).branch, "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrCwd().*);
+            if (@hasField(@TypeOf(@field(dependencies, field_name)), "branch")) {
+                _ = try self.run(&.{ "git", "clone", "--bare", "--branch", @field(dependencies, field_name).branch, "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrCwd().*);
             } else {
                 _ = try self.run(&.{ "git", "clone", "--bare", "--filter=blob:none", "--", self.fmt("https://{s}{s}", .{ host, path }), tmp_path }, self.ptrCwd().*);
             }
@@ -241,7 +241,7 @@ pub const VerboseBuilder = struct {
             } else {
                 latest = try self.run(&.{ "git", "rev-parse", "HEAD" }, tmp_dir);
             }
-            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field.name, self.fmt("git+https://{s}{s}#{s}", .{ host, path, latest }) }, dir.*);
+            _ = try self.run(&.{ "zig", "fetch", "--save=" ++ field_name, self.fmt("git+https://{s}{s}#{s}", .{ host, path, latest }) }, dir.*);
         }
     }
 
@@ -651,10 +651,10 @@ pub const VerboseBuilder = struct {
         include = include[0 .. std.mem.lastIndexOfScalar(u8, include, '.') orelse include.len];
         const path = self.fmt("{s}/{s}.in", .{ self.resolve(paths), include });
         options.debug("Adding a C header file from {s} {s} template input file into \"{s}\" {s}", .{ path, @tagName(style), compile.name, self.kind(compile) });
-        inline for (std.meta.fields(@TypeOf(macros))) |field| {
-            switch (@typeInfo(field.type)) {
-                .pointer => |ptr| if (ptr.child == u8) options.debug("Defining {s} {s} into {s}", .{ field.name, @field(macros, field.name), include }),
-                else => options.debug("Defining {s} {} into {s}", .{ field.name, @field(macros, field.name), include }),
+        inline for (comptime std.meta.fieldNames(@TypeOf(macros))) |field_name| {
+            switch (@typeInfo(@TypeOf(@field(macros, field_name)))) {
+                .pointer => |ptr| if (ptr.child == u8) options.debug("Defining {s} {s} into {s}", .{ field_name, @field(macros, field_name), include }),
+                else => options.debug("Defining {s} {} into {s}", .{ field_name, @field(macros, field_name), include }),
             }
         }
         const config_header = self.ptrBuilder().addConfigHeader(.{ .style = switch (style) {
