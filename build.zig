@@ -397,6 +397,15 @@ pub const VerboseBuilder = struct {
         });
     }
 
+    pub fn verboseLazyDependency(self: *@This(), name: []const u8) ?*std.Build.Dependency {
+        options.debug("Requesting \"{s}\" lazy dependency", .{name});
+        return self.ptrBuilder().lazyDependency(name, .{
+            .optimize = optimize,
+            .target = target,
+            .verbose = options.isVerbose(),
+        });
+    }
+
     pub fn verboseDependency(self: *@This(), name: []const u8) *std.Build.Dependency {
         options.debug("Requesting \"{s}\" dependency", .{name});
         return self.ptrBuilder().dependency(name, .{
