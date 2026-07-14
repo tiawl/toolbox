@@ -211,7 +211,14 @@ pub const VerboseBuilder = struct {
         inline for (comptime std.meta.fieldNames(T)) |field_name| {
             if (!@hasField(@TypeOf(@field(dependencies, field_name)), "url")) continue;
             const uri = try std.Uri.parse(@field(dependencies, field_name).url);
-            const host = (uri.getHostAlloc(self.getAllocator()) catch @panic("OOM")).bytes;
+            var host_buf: [std.Io.net.HostName.max_len]u8 = undefined;
+            const host = blk: {
+                if (@hasDecl(std.Io.net.HostName, "fromUri")) {
+                    break :blk (try std.Io.net.HostName.fromUri(uri, &host_buf)).bytes;
+                } else {
+                    break :blk (uri.getHostAlloc(self.getAllocator()) catch @panic("OOM")).bytes;
+                }
+            };
             const path = self.uriComponent(&uri.path);
             self.ptrCwd().createDirPath(io, self.resolve(&.{ ".zig-cache", "tmp" })) catch |e|
                 if (e != error.PathAlreadyExists) return e;
