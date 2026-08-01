@@ -102,6 +102,7 @@ jobs:
         shell: 'bash'
         run: |
           set -x
+          rm -rf .zig-cache ~/.cache/zig
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
