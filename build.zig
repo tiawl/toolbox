@@ -404,18 +404,35 @@ pub const VerboseBuilder = struct {
         });
     }
 
-    pub fn verboseLazyDependency(self: *@This(), name: []const u8) ?*std.Build.Dependency {
+    pub fn dependencyLazy(self: *@This(), name: []const u8) ?*std.Build.Dependency {
         options.debug("Requesting \"{s}\" lazy dependency", .{name});
-        return self.ptrBuilder().lazyDependency(name, .{
+        // TODO: remove for Zig 0.17.0
+        return if (@hasField(std.Build, "dependencyLazy")) self.ptrBuilder().dependencyLazy(name, .{
             .optimize = optimize,
             .target = target,
-            .verbose = options.isVerbose(),
+        }) catch null else self.ptrBuilder().lazyDependency(name, .{
+            .optimize = optimize,
+            .target = target,
         });
     }
 
     pub fn verboseDependency(self: *@This(), name: []const u8) *std.Build.Dependency {
         options.debug("Requesting \"{s}\" dependency", .{name});
         return self.ptrBuilder().dependency(name, .{
+            .optimize = optimize,
+            .target = target,
+            .verbose = options.isVerbose(),
+        });
+    }
+
+    pub fn verboseDependencyLazy(self: *@This(), name: []const u8) ?*std.Build.Dependency {
+        options.debug("Requesting \"{s}\" lazy dependency", .{name});
+        // TODO: remove for Zig 0.17.0
+        return if (@hasField(std.Build, "dependencyLazy")) self.ptrBuilder().dependencyLazy(name, .{
+            .optimize = optimize,
+            .target = target,
+            .verbose = options.isVerbose(),
+        }) catch null else self.ptrBuilder().lazyDependency(name, .{
             .optimize = optimize,
             .target = target,
             .verbose = options.isVerbose(),
@@ -543,26 +560,8 @@ pub const VerboseBuilder = struct {
         self.addIncludePathIntoModule(compile.root_module, path);
     }
 
-    fn addIncludePathIntoTranslateC(_: *@This(), translate_c: *std.Build.Step.TranslateC, path: std.Build.LazyPath) void {
-        if (@hasField(std.Build.LazyPath, "relative")) {
-            switch (path) {
-                inline .generated, .dependency, .relative => |*lazy| options.debug("Including {s} into \"{s}\" translate-c", .{ lazy.sub_path, translate_c.step.name }),
-                .src_path => |*lazy| options.debug("Including {s}{s} into \"{s}\" translate-c", .{ lazy.owner.dep_prefix, lazy.sub_path, translate_c.step.name }),
-                .cwd_relative => |lazy| options.debug("Including {s} into \"{s}\" translate-c", .{ lazy, translate_c.step.name }),
-            }
-            // TODO: remove this for 0.17.0 release
-        } else {
-            switch (path) {
-                inline .generated, .dependency => |*lazy| options.debug("Including {s} into \"{s}\" translate-c", .{ lazy.sub_path, translate_c.step.name }),
-                .src_path => |*lazy| options.debug("Including {s}{s} into \"{s}\" translate-c", .{ lazy.owner.dep_prefix, lazy.sub_path, translate_c.step.name }),
-                .cwd_relative => |lazy| options.debug("Including {s} into \"{s}\" translate-c", .{ lazy, translate_c.step.name }),
-            }
-        }
-        translate_c.addIncludePath(path);
-    }
-
     pub fn addIncludePath(self: *@This(), comptime T: type, t: *T, path: std.Build.LazyPath) void {
-        if (T == std.Build.Step.Compile) self.addIncludePathIntoCompile(t, path) else if (T == std.Build.Module) self.addIncludePathIntoModule(t, path) else if (T == std.Build.Step.TranslateC) self.addIncludePathIntoTranslateC(t, path) else unreachable;
+        if (T == std.Build.Step.Compile) self.addIncludePathIntoCompile(t, path) else if (T == std.Build.Module) self.addIncludePathIntoModule(t, path) else unreachable;
     }
 
     pub fn addInclude(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8) void {
@@ -620,26 +619,8 @@ pub const VerboseBuilder = struct {
         self.addSystemIncludePathIntoModule(compile.root_module, path);
     }
 
-    fn addSystemIncludePathIntoTranslateC(_: *@This(), translate_c: *std.Build.Step.TranslateC, path: std.Build.LazyPath) void {
-        if (@hasField(std.Build.LazyPath, "relative")) {
-            switch (path) {
-                inline .generated, .dependency, .relative => |*lazy| options.debug("Including system {s} into \"{s}\" translate-c", .{ lazy.sub_path, translate_c.step.name }),
-                .src_path => |*lazy| options.debug("Including system {s}{s} into \"{s}\" translate-c", .{ lazy.owner.dep_prefix, lazy.sub_path, translate_c.step.name }),
-                .cwd_relative => |lazy| options.debug("Including system {s} into \"{s}\" translate-c", .{ lazy, translate_c.step.name }),
-            }
-            // TODO: remove this for 0.17.0 release
-        } else {
-            switch (path) {
-                inline .generated, .dependency => |*lazy| options.debug("Including system {s} into \"{s}\" translate-c", .{ lazy.sub_path, translate_c.step.name }),
-                .src_path => |*lazy| options.debug("Including system {s}{s} into \"{s}\" translate-c", .{ lazy.owner.dep_prefix, lazy.sub_path, translate_c.step.name }),
-                .cwd_relative => |lazy| options.debug("Including system {s} into \"{s}\" translate-c", .{ lazy, translate_c.step.name }),
-            }
-        }
-        translate_c.addSystemIncludePath(path);
-    }
-
     pub fn addSystemIncludePath(self: *@This(), comptime T: type, t: *T, path: std.Build.LazyPath) void {
-        if (T == std.Build.Step.Compile) self.addSystemIncludePathIntoCompile(t, path) else if (T == std.Build.Module) self.addSystemIncludePathIntoModule(t, path) else if (T == std.Build.Step.TranslateC) self.addSystemIncludePathIntoTranslateC(t, path) else unreachable;
+        if (T == std.Build.Step.Compile) self.addSystemIncludePathIntoCompile(t, path) else if (T == std.Build.Module) self.addSystemIncludePathIntoModule(t, path) else unreachable;
     }
 
     fn addConfigHeaderIntoModule(_: *@This(), module: *std.Build.Module, config_header: *std.Build.Step.ConfigHeader) void {
@@ -652,13 +633,8 @@ pub const VerboseBuilder = struct {
         self.addConfigHeaderIntoModule(compile.root_module, config_header);
     }
 
-    fn addConfigHeaderIntoTranslateC(_: *@This(), translate_c: *std.Build.Step.TranslateC, config_header: *std.Build.Step.ConfigHeader) void {
-        options.debug("Adding {s} C header file into \"{s}\" translate-c", .{ config_header.getOutputFile().generated.sub_path, translate_c.step.name });
-        translate_c.addConfigHeader(config_header);
-    }
-
     pub fn addConfigHeader(self: *@This(), comptime T: type, t: *T, config_header: *std.Build.Step.ConfigHeader) void {
-        if (T == std.Build.Step.Compile) self.addConfigHeaderIntoCompile(t, config_header) else if (T == std.Build.Module) self.addConfigHeaderIntoModule(t, config_header) else if (T == std.Build.Step.TranslateC) self.addConfigHeaderIntoTranslateC(t, config_header) else unreachable;
+        if (T == std.Build.Step.Compile) self.addConfigHeaderIntoCompile(t, config_header) else if (T == std.Build.Module) self.addConfigHeaderIntoModule(t, config_header) else unreachable;
     }
 
     pub fn generateConfigHeader(self: *@This(), compile: *std.Build.Step.Compile, paths: []const []const u8, includes: []const []const u8, style: std.meta.Tag(std.Build.Step.ConfigHeader.Style), macros: anytype) void {
