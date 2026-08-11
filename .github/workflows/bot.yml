@@ -19,4 +19,4 @@ jobs:
           version: 'master'
       - name: Build
         shell: 'bash'
-        run: zig build
+        run: zig build -freference-trace
