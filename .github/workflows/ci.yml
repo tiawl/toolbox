@@ -106,12 +106,12 @@ jobs:
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-            renderers="$(zig build -Dlist-renderers -Dseparator=,)"
+            renderers="$(zig build -Dlist-renderers -Dseparator=, -freference-trace)"
             renderers="${renderers:+"-Drenderers={${renderers}}"}"
-            platforms="$(zig build -Dlist-platforms -Dseparator=,)"
+            platforms="$(zig build -Dlist-platforms -Dseparator=, -freference-trace)"
             platforms="${platforms:+"-Dplatforms={${platforms}}"}"
-            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms}" ;;
-          ( * ) zig build -Dupdate -Dverbose ;;
+            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms} -freference-trace" ;;
+          ( * ) zig build -Dupdate -Dverbose -freference-trace ;;
           esac
 
       - name: Test fetching ${{ matrix.repo }}.zig
@@ -128,11 +128,11 @@ jobs:
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-            renderers="$(zig build -Dlist-renderers -Dseparator=,)"
+            renderers="$(zig build -Dlist-renderers -Dseparator=, -freference-trace)"
             renderers="${renderers:+"-Drenderers={${renderers}}"}"
-            platforms="$(zig build -Dlist-platforms -Dseparator=,)"
+            platforms="$(zig build -Dlist-platforms -Dseparator=, -freference-trace)"
             platforms="${platforms:+"-Dplatforms={${platforms}}"}"
-            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms}" ;;
-          ( * ) zig build -Dfetch -Dverbose ${opts} ;;
+            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms} -freference-trace" ;;
+          ( * ) zig build -Dfetch -Dverbose ${opts} -freference-trace ;;
           esac
           set +f
