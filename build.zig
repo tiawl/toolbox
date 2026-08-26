@@ -331,8 +331,12 @@ pub const VerboseBuilder = struct {
         try self.ptrEnvMap().put(key, value);
     }
 
-    pub inline fn getOs(_: *@This()) std.Target.Os.Tag {
-        return target.result.os.tag;
+    pub inline fn getTarget(_: *@This()) std.Build.ResolvedTarget {
+        return target;
+    }
+
+    pub inline fn getOs(self: *@This()) std.Target.Os.Tag {
+        return self.getTarget().result.os.tag;
     }
 
     // TODO: remove this for 0.17.0 release
