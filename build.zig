@@ -693,7 +693,6 @@ pub const VerboseBuilder = struct {
             if (!std.process.can_spawn) return error.ExecNotSupported;
 
             const io = self.getIo();
-            if (@hasDecl(std.Build.Step, "handleVerbose2")) try std.Build.Step.handleVerbose2(self.ptrBuilder(), .{ .dir = cwd }, &self.ptrGraph().environ_map, argv);
 
             const result = std.process.run(self.getAllocator(), io, .{
                 .argv = argv,
