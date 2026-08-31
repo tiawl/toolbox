@@ -106,12 +106,12 @@ jobs:
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-            renderers="$(zig build -Dlist-renderers -Dseparator=, -freference-trace)"
+            renderers="$(zig build -Dlist-renderers -Dseparator=, -freference-trace --verbose)"
             renderers="${renderers:+"-Drenderers={${renderers}}"}"
-            platforms="$(zig build -Dlist-platforms -Dseparator=, -freference-trace)"
+            platforms="$(zig build -Dlist-platforms -Dseparator=, -freference-trace --verbose)"
             platforms="${platforms:+"-Dplatforms={${platforms}}"}"
-            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms} -freference-trace" ;;
-          ( * ) zig build -Dupdate -Dverbose -freference-trace ;;
+            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms} -freference-trace --verbose" ;;
+          ( * ) zig build -Dupdate -Dverbose -freference-trace --verbose ;;
           esac
 
       - name: Test fetching ${{ matrix.repo }}.zig
@@ -128,11 +128,11 @@ jobs:
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
-            renderers="$(zig build -Dlist-renderers -Dseparator=, -freference-trace)"
+            renderers="$(zig build -Dlist-renderers -Dseparator=, -freference-trace --verbose)"
             renderers="${renderers:+"-Drenderers={${renderers}}"}"
-            platforms="$(zig build -Dlist-platforms -Dseparator=, -freference-trace)"
+            platforms="$(zig build -Dlist-platforms -Dseparator=, -freference-trace --verbose)"
             platforms="${platforms:+"-Dplatforms={${platforms}}"}"
-            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms} -freference-trace" ;;
-          ( * ) zig build -Dfetch -Dverbose ${opts} -freference-trace ;;
+            eval "zig build -Dupdate -Dverbose ${renderers} ${platforms} -freference-trace --verbose" ;;
+          ( * ) zig build -Dfetch -Dverbose ${opts} -freference-trace --verbose ;;
           esac
           set +f
