@@ -1,4 +1,5 @@
 const std = @import("std");
+const zon = @import("build.zig.zon");
 const builtin = @import("builtin");
 
 pub const ext = struct {
@@ -166,8 +167,7 @@ pub const VerboseBuilder = struct {
             .__builder = builder,
             .__walker = null,
             .__iterator = null,
-            // TODO: remove build_root for 0.17.0 release
-            .__dir = if (@hasField(std.Build, "build_root")) builder.build_root.handle else if (@hasField(std.Build, "root")) builder.root.root_dir.handle else unreachable,
+            .__dir = builder.root.root_dir.handle,
             .__prefix = "/",
             .__build_fn = build_fn,
             .__update_fn = update_fn,
@@ -188,8 +188,7 @@ pub const VerboseBuilder = struct {
             .__builder = dep.builder,
             .__walker = null,
             .__iterator = null,
-            // TODO: remove build_root for 0.17.0 release
-            .__dir = if (@hasField(std.Build, "build_root")) dep.builder.build_root.handle else if (@hasField(std.Build, "root")) dep.builder.root.root_dir.handle else unreachable,
+            .__dir = dep.builder.root.root_dir.handle,
             .__prefix = "/",
             .__build_fn = null,
             .__update_fn = null,
@@ -212,13 +211,7 @@ pub const VerboseBuilder = struct {
             if (!@hasField(@TypeOf(@field(dependencies, field_name)), "url")) continue;
             const uri = try std.Uri.parse(@field(dependencies, field_name).url);
             var host_buf: [std.Io.net.HostName.max_len]u8 = undefined;
-            const host = blk: {
-                if (@hasDecl(std.Io.net.HostName, "fromUri")) {
-                    break :blk (try std.Io.net.HostName.fromUri(uri, &host_buf)).bytes;
-                } else {
-                    break :blk (uri.getHostAlloc(self.getAllocator()) catch @panic("OOM")).bytes;
-                }
-            };
+            const host = (try std.Io.net.HostName.fromUri(uri, &host_buf)).bytes;
             const path = self.uriComponent(&uri.path);
             self.ptrCwd().createDirPath(io, self.resolve(&.{ ".zig-cache", "tmp" })) catch |e|
                 if (e != error.PathAlreadyExists) return e;
@@ -267,8 +260,7 @@ pub const VerboseBuilder = struct {
     }
 
     inline fn ptrRoot(self: *@This()) *std.Build.Cache.Directory {
-        // TODO: remove build_root for 0.17.0 release
-        return if (@hasField(std.Build, "build_root")) &self.ptrBuilder().build_root else if (@hasField(std.Build, "root")) &self.ptrBuilder().root.root_dir else unreachable;
+        return &self.ptrBuilder().root.root_dir;
     }
 
     pub inline fn getInstallStep(self: *@This()) *std.Build.Step {
@@ -339,11 +331,6 @@ pub const VerboseBuilder = struct {
         return self.getTarget().result.os.tag;
     }
 
-    // TODO: remove this for 0.17.0 release
-    pub inline fn getArgs(self: @This()) []const []const u8 {
-        return if (@hasField(std.Build, "args")) self.getBuilder().args orelse &.{} else unreachable;
-    }
-
     // std.mem wrappers -------------------------------------------------------
 
     pub inline fn relative(self: *@This(), from: []const u8, to: []const u8) []const u8 {
@@ -410,14 +397,10 @@ pub const VerboseBuilder = struct {
 
     pub fn dependencyLazy(self: *@This(), name: []const u8) ?*std.Build.Dependency {
         options.debug("Requesting \"{s}\" lazy dependency", .{name});
-        // TODO: remove for Zig 0.17.0
-        return if (@hasField(std.Build, "dependencyLazy")) self.ptrBuilder().dependencyLazy(name, .{
+        return self.ptrBuilder().dependencyLazy(name, .{
             .optimize = optimize,
             .target = target,
-        }) catch null else self.ptrBuilder().lazyDependency(name, .{
-            .optimize = optimize,
-            .target = target,
-        });
+        }) catch null;
     }
 
     pub fn verboseDependency(self: *@This(), name: []const u8) *std.Build.Dependency {
@@ -431,16 +414,11 @@ pub const VerboseBuilder = struct {
 
     pub fn verboseDependencyLazy(self: *@This(), name: []const u8) ?*std.Build.Dependency {
         options.debug("Requesting \"{s}\" lazy dependency", .{name});
-        // TODO: remove for Zig 0.17.0
-        return if (@hasField(std.Build, "dependencyLazy")) self.ptrBuilder().dependencyLazy(name, .{
+        return self.ptrBuilder().dependencyLazy(name, .{
             .optimize = optimize,
             .target = target,
             .verbose = options.isVerbose(),
-        }) catch null else self.ptrBuilder().lazyDependency(name, .{
-            .optimize = optimize,
-            .target = target,
-            .verbose = options.isVerbose(),
-        });
+        }) catch null;
     }
 
     pub fn artifact(self: *@This(), dep: *std.Build.Dependency, name: []const u8) *std.Build.Step.Compile {
@@ -529,37 +507,19 @@ pub const VerboseBuilder = struct {
     }
 
     fn addIncludePathIntoModule(_: *@This(), module: *std.Build.Module, path: std.Build.LazyPath) void {
-        if (@hasField(std.Build.LazyPath, "relative")) {
-            switch (path) {
-                inline .generated, .dependency, .relative => |*lazy| options.debug("Including {s} into module", .{lazy.sub_path}),
-                .src_path => |*lazy| options.debug("Including {s}{s} into module", .{ lazy.owner.dep_prefix, lazy.sub_path }),
-                .cwd_relative => |lazy| options.debug("Including {s} into module", .{lazy}),
-            }
-            // TODO: remove this for 0.17.0 release
-        } else {
-            switch (path) {
-                inline .generated, .dependency => |*lazy| options.debug("Including {s} into module", .{lazy.sub_path}),
-                .src_path => |*lazy| options.debug("Including {s}{s} into module", .{ lazy.owner.dep_prefix, lazy.sub_path }),
-                .cwd_relative => |lazy| options.debug("Including {s} into module", .{lazy}),
-            }
+        switch (path) {
+            inline .generated, .dependency, .relative => |*lazy| options.debug("Including {s} into module", .{lazy.sub_path}),
+            .src_path => |*lazy| options.debug("Including {s}{s} into module", .{ lazy.owner.dep_prefix, lazy.sub_path }),
+            .cwd_relative => |lazy| options.debug("Including {s} into module", .{lazy}),
         }
         module.addIncludePath(path);
     }
 
     fn addIncludePathIntoCompile(self: *@This(), compile: *std.Build.Step.Compile, path: std.Build.LazyPath) void {
-        if (@hasField(std.Build.LazyPath, "relative")) {
-            switch (path) {
-                inline .generated, .dependency, .relative => |*lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy.sub_path, compile.name, self.kind(compile) }),
-                .src_path => |*lazy| options.debug("Including {s}{s} into \"{s}\" {s}", .{ lazy.owner.dep_prefix, lazy.sub_path, compile.name, self.kind(compile) }),
-                .cwd_relative => |lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy, compile.name, self.kind(compile) }),
-            }
-            // TODO: remove this for 0.17.0 release
-        } else {
-            switch (path) {
-                inline .generated, .dependency => |*lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy.sub_path, compile.name, self.kind(compile) }),
-                .src_path => |*lazy| options.debug("Including {s}{s} into \"{s}\" {s}", .{ lazy.owner.dep_prefix, lazy.sub_path, compile.name, self.kind(compile) }),
-                .cwd_relative => |lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy, compile.name, self.kind(compile) }),
-            }
+        switch (path) {
+            inline .generated, .dependency, .relative => |*lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy.sub_path, compile.name, self.kind(compile) }),
+            .src_path => |*lazy| options.debug("Including {s}{s} into \"{s}\" {s}", .{ lazy.owner.dep_prefix, lazy.sub_path, compile.name, self.kind(compile) }),
+            .cwd_relative => |lazy| options.debug("Including {s} into \"{s}\" {s}", .{ lazy, compile.name, self.kind(compile) }),
         }
         self.addIncludePathIntoModule(compile.root_module, path);
     }
@@ -588,37 +548,19 @@ pub const VerboseBuilder = struct {
     }
 
     fn addSystemIncludePathIntoModule(_: *@This(), module: *std.Build.Module, path: std.Build.LazyPath) void {
-        if (@hasField(std.Build.LazyPath, "relative")) {
-            switch (path) {
-                inline .generated, .dependency, .relative => |*lazy| options.debug("Including {s} into module", .{lazy.sub_path}),
-                .src_path => |*lazy| options.debug("Including {s}{s} into module", .{ lazy.owner.dep_prefix, lazy.sub_path }),
-                .cwd_relative => |lazy| options.debug("Including {s} into module", .{lazy}),
-            }
-            // TODO: remove this for 0.17.0 release
-        } else {
-            switch (path) {
-                inline .generated, .dependency => |*lazy| options.debug("Including {s} into module", .{lazy.sub_path}),
-                .src_path => |*lazy| options.debug("Including {s}{s} into module", .{ lazy.owner.dep_prefix, lazy.sub_path }),
-                .cwd_relative => |lazy| options.debug("Including {s} into module", .{lazy}),
-            }
+        switch (path) {
+            inline .generated, .dependency, .relative => |*lazy| options.debug("Including {s} into module", .{lazy.sub_path}),
+            .src_path => |*lazy| options.debug("Including {s}{s} into module", .{ lazy.owner.dep_prefix, lazy.sub_path }),
+            .cwd_relative => |lazy| options.debug("Including {s} into module", .{lazy}),
         }
         module.addSystemIncludePath(path);
     }
 
     fn addSystemIncludePathIntoCompile(self: *@This(), compile: *std.Build.Step.Compile, path: std.Build.LazyPath) void {
-        if (@hasField(std.Build.LazyPath, "relative")) {
-            switch (path) {
-                inline .generated, .dependency, .relative => |*lazy| options.debug("Including system {s} into \"{s}\" {s}", .{ lazy.sub_path, compile.name, self.kind(compile) }),
-                .src_path => |*lazy| options.debug("Including system {s}{s} into \"{s}\" {s}", .{ lazy.owner.dep_prefix, lazy.sub_path, compile.name, self.kind(compile) }),
-                .cwd_relative => |lazy| options.debug("Including system {s} into \"{s}\" {s}", .{ lazy, compile.name, self.kind(compile) }),
-            }
-            // TODO: remove this for 0.17.0 release
-        } else {
-            switch (path) {
-                inline .generated, .dependency => |*lazy| options.debug("Including system {s} into \"{s}\" {s}", .{ lazy.sub_path, compile.name, self.kind(compile) }),
-                .src_path => |*lazy| options.debug("Including system {s}{s} into \"{s}\" {s}", .{ lazy.owner.dep_prefix, lazy.sub_path, compile.name, self.kind(compile) }),
-                .cwd_relative => |lazy| options.debug("Including system {s} into \"{s}\" {s}", .{ lazy, compile.name, self.kind(compile) }),
-            }
+        switch (path) {
+            inline .generated, .dependency, .relative => |*lazy| options.debug("Including system {s} into \"{s}\" {s}", .{ lazy.sub_path, compile.name, self.kind(compile) }),
+            .src_path => |*lazy| options.debug("Including system {s}{s} into \"{s}\" {s}", .{ lazy.owner.dep_prefix, lazy.sub_path, compile.name, self.kind(compile) }),
+            .cwd_relative => |lazy| options.debug("Including system {s} into \"{s}\" {s}", .{ lazy, compile.name, self.kind(compile) }),
         }
         self.addSystemIncludePathIntoModule(compile.root_module, path);
     }
@@ -675,65 +617,17 @@ pub const VerboseBuilder = struct {
 
     pub fn run(self: *@This(), argv: []const []const u8, cwd: std.Io.Dir) ![]const u8 {
         options.debug("Running \"{s}\"", .{self.join(" ", argv)});
-        if (@hasDecl(std.Build, "runFallible")) {
-            return switch (self.ptrBuilder().runFallible(argv, .{ .cwd = .{ .dir = cwd } })) {
-                .success => |stdout| {
-                    const trimmed = std.mem.trim(u8, stdout, &std.ascii.whitespace);
-                    var it = std.mem.tokenizeScalar(u8, trimmed, '\n');
-                    while (it.next()) |line| options.info("   {s}", .{line});
-                    return trimmed;
-                },
-                .spawn_failed => |err| return err,
-                .bad_exit_code => return error.ExitCodeFailure,
-                .crashed => return error.ProcessTerminated,
-            };
-        } else {
-            std.debug.assert(argv.len != 0);
-
-            if (!std.process.can_spawn) return error.ExecNotSupported;
-
-            const io = self.getIo();
-
-            const result = std.process.run(self.getAllocator(), io, .{
-                .argv = argv,
-                .cwd = .{ .dir = cwd },
-                .environ_map = &self.ptrGraph().environ_map,
-            }) catch |e| {
-                options.err("System command failed to run: {}", .{e});
-                return error.ExitCodeFailure;
-            };
-            defer self.getAllocator().free(result.stderr);
-
-            switch (result.term) {
-                .exited => |code| {
-                    if (code != 0) {
-                        options.err("System command failed. Exit code: \"{d}\"", .{code});
-                        var it = std.mem.tokenizeScalar(u8, result.stderr, '\n');
-                        while (it.next()) |line| options.err("  {s}", .{line});
-                        self.getAllocator().free(result.stdout);
-                        return error.ExitCodeFailure;
-                    }
-                    const trimmed = std.mem.trim(u8, result.stdout, &std.ascii.whitespace);
-                    var it = std.mem.tokenizeScalar(u8, trimmed, '\n');
-                    while (it.next()) |line| options.info("   {s}", .{line});
-                    return trimmed;
-                },
-                .signal, .stopped => |sig| {
-                    options.err("System command failed. Signal: \"{d}\"", .{@intFromEnum(sig)});
-                    var it = std.mem.tokenizeScalar(u8, result.stderr, '\n');
-                    while (it.next()) |line| options.err("  {s}", .{line});
-                    self.getAllocator().free(result.stdout);
-                    return error.ProcessTerminated;
-                },
-                .unknown => |code| {
-                    options.err("System command failed. Exit code: \"{d}\"", .{@as(u8, @truncate(code))});
-                    var it = std.mem.tokenizeScalar(u8, result.stderr, '\n');
-                    while (it.next()) |line| options.err("  {s}", .{line});
-                    self.getAllocator().free(result.stdout);
-                    return error.ProcessTerminated;
-                },
-            }
-        }
+        return switch (self.ptrBuilder().runFallible(argv, .{ .cwd = .{ .dir = cwd } })) {
+            .success => |stdout| {
+                const trimmed = std.mem.trim(u8, stdout, &std.ascii.whitespace);
+                var it = std.mem.tokenizeScalar(u8, trimmed, '\n');
+                while (it.next()) |line| options.info("   {s}", .{line});
+                return trimmed;
+            },
+            .spawn_failed => |err| return err,
+            .bad_exit_code => return error.ExitCodeFailure,
+            .crashed => return error.ProcessTerminated,
+        };
     }
 
     pub fn addRunArtifact(self: *@This(), compile: *std.Build.Step.Compile) *std.Build.Step.Run {
@@ -763,11 +657,8 @@ pub const VerboseBuilder = struct {
     }
 
     pub fn addPassthruArgs(_: @This(), r: *std.Build.Step.Run) void {
-        // TODO: remove this for 0.17.0 release
-        if (@hasDecl(std.Build.Step.Run, "addPassthruArgs")) {
-            options.debug("Running \"{s}\" step with zig build arguments", .{r.step.name});
-            r.addPassthruArgs();
-        } else unreachable;
+        options.debug("Running \"{s}\" step with zig build arguments", .{r.step.name});
+        r.addPassthruArgs();
     }
 
     pub fn addArgs(self: @This(), r: *std.Build.Step.Run, args: []const []const u8) void {
@@ -924,7 +815,34 @@ pub const VerboseBuilder = struct {
     }
 };
 
+fn checkVersion(builder: *std.Build) !void {
+    const git = builder.findProgram(.{ .names = &.{"git"} }) orelse return error.ProgramNotFound;
+    const raw_git_describe = switch (builder.runFallible(&[_][]const u8{
+        git, "--git-dir", ".git", "describe", "--match", "*.*.*", "--tags", "--abbrev=9",
+    }, .{ .cwd = .{ .dir = builder.root.root_dir.handle } })) {
+        .success => |stdout| stdout,
+        .spawn_failed => |err| return err,
+        .bad_exit_code => return error.ExitCodeFailure,
+        .crashed => return error.ProcessTerminated,
+    };
+    const git_describe = std.mem.trim(u8, raw_git_describe, &std.ascii.whitespace);
+
+    const zon_version_sem = try std.SemanticVersion.parse(zon.version);
+
+    var it = std.mem.splitScalar(u8, git_describe, '-');
+    const tagged_ancestor = it.first();
+
+    const tagged_ancestor_sem = try std.SemanticVersion.parse(tagged_ancestor);
+    if (zon_version_sem.order(tagged_ancestor_sem) != .eq) {
+        std.debug.print("build.zig.zon version '{}.{}.{}' must be equal to tagged ancestor '{}.{}.{}'\n", .{
+            zon_version_sem.major, zon_version_sem.minor, zon_version_sem.patch, tagged_ancestor_sem.major, tagged_ancestor_sem.minor, tagged_ancestor_sem.patch,
+        });
+        return error.UnsynchronizedGitAndZON;
+    }
+}
+
 pub fn build(builder: *std.Build) !void {
+    try checkVersion(builder);
     _ = builder.addModule("toolbox", .{
         .root_source_file = builder.addWriteFiles().add("empty.zig", ""),
     });
