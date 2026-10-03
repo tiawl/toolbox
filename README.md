@@ -8,7 +8,7 @@ This package was originally thought for the [tiawl/spaceporn][1] dependencies ch
 
 ## Dependencies
 
-The [Zig][2] part of this package requires the latest (0.16.0) or the master (0.17.0-dev) [Zig][2] release.
+The [Zig][2] part of this package requires the latest (0.17.0) or the master (0.18.0-dev) [Zig][2] release.
 
 ## License
 
