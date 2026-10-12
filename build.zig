@@ -438,6 +438,17 @@ pub const VerboseBuilder = struct {
         });
     }
 
+    pub fn addHostExecutable(self: *@This(), name: []const u8) *std.Build.Step.Compile {
+        options.debug("Creating \"{s}\" host executable", .{name});
+        return self.ptrBuilder().addExecutable(.{
+            .name = name,
+            .root_module = std.Build.Module.create(self.ptrBuilder(), .{
+                .optimize = optimize,
+                .target = self.getBuilder().graph.host,
+            }),
+        });
+    }
+
     pub fn addLibrary(self: *@This(), name: []const u8) *std.Build.Step.Compile {
         options.debug("Creating \"{s}\" static library", .{name});
         return self.ptrBuilder().addLibrary(.{
