@@ -1,6 +1,5 @@
 const std = @import("std");
 const zon = @import("build.zig.zon");
-const builtin = @import("builtin");
 
 pub const ext = struct {
     pub const c = struct {
@@ -149,11 +148,11 @@ pub const VerboseBuilder = struct {
         }
     };
 
-    var optimize: std.builtin.OptimizeMode = undefined;
-    var target: std.Build.ResolvedTarget = undefined;
     var options: BuildOptions = .{};
 
     __builder: *std.Build,
+    __optimize: ?std.lang.Optimize,
+    __target: std.Build.ResolvedTarget,
     __walker: ?std.Io.Dir.Walker,
     __iterator: ?std.Io.Dir.Iterator,
     __dir: std.Io.Dir,
@@ -165,6 +164,8 @@ pub const VerboseBuilder = struct {
         builder.dep_prefix = name ++ ".";
         var self: @This() = .{
             .__builder = builder,
+            .__optimize = builder.standardOptimizeOption(.{}),
+            .__target = builder.standardTargetOptions(.{}),
             .__walker = null,
             .__iterator = null,
             .__dir = builder.root.root_dir.handle,
@@ -173,8 +174,6 @@ pub const VerboseBuilder = struct {
             .__update_fn = update_fn,
         };
 
-        optimize = builder.standardOptimizeOption(.{});
-        target = builder.standardTargetOptions(.{});
         options.__verbose = self.option(bool, false, "verbose", "Enabled toolbox debug logging");
         options.__fetch = self.option(bool, false, "fetch", "Update build.zig.zon then stop execution");
         options.__update = self.option(bool, false, "update", "Update binding");
@@ -186,6 +185,8 @@ pub const VerboseBuilder = struct {
         dep.builder.dep_prefix = dep.builder.dep_prefix[std.mem.indexOfScalar(u8, dep.builder.dep_prefix, '.').? + 1 ..];
         const other: @This() = .{
             .__builder = dep.builder,
+            .__optimize = dep.builder.standardOptimizeOption(.{}),
+            .__target = dep.builder.standardTargetOptions(.{}),
             .__walker = null,
             .__iterator = null,
             .__dir = dep.builder.root.root_dir.handle,
@@ -307,24 +308,32 @@ pub const VerboseBuilder = struct {
         return self.__update_fn.?;
     }
 
-    inline fn ptrGraph(self: *@This()) *std.Build.Graph {
+    pub inline fn ptrGraph(self: *@This()) *std.Build.Graph {
         return self.ptrBuilder().graph;
-    }
-
-    inline fn ptrEnvMap(self: *@This()) *std.process.Environ.Map {
-        return &self.ptrGraph().environ_map;
     }
 
     pub inline fn getIo(self: *@This()) std.Io {
         return self.ptrGraph().io;
     }
 
+    pub inline fn getHost(self: *@This()) std.Build.ResolvedTarget {
+        return self.ptrGraph().host;
+    }
+
+    pub inline fn ptrEnvMap(self: *@This()) *std.process.Environ.Map {
+        return &self.ptrGraph().environ_map;
+    }
+
     pub inline fn putEnvVar(self: *@This(), key: []const u8, value: []const u8) !void {
         try self.ptrEnvMap().put(key, value);
     }
 
-    pub inline fn getTarget(_: *@This()) std.Build.ResolvedTarget {
-        return target;
+    pub inline fn getOptimize(self: @This()) std.lang.Optimize {
+        return self.__optimize orelse .debug;
+    }
+
+    pub inline fn getTarget(self: @This()) std.Build.ResolvedTarget {
+        return self.__target;
     }
 
     pub inline fn getOs(self: *@This()) std.Target.Os.Tag {
@@ -387,7 +396,7 @@ pub const VerboseBuilder = struct {
         return self.ptrBuilder().step(name, description);
     }
 
-    pub fn dependency(self: *@This(), name: []const u8) *std.Build.Dependency {
+    pub fn dependency(self: *@This(), name: []const u8, optimize: std.lang.Optimize, target: std.Build.ResolvedTarget) *std.Build.Dependency {
         options.debug("Requesting \"{s}\" dependency", .{name});
         return self.ptrBuilder().dependency(name, .{
             .optimize = optimize,
@@ -395,7 +404,7 @@ pub const VerboseBuilder = struct {
         });
     }
 
-    pub fn dependencyLazy(self: *@This(), name: []const u8) ?*std.Build.Dependency {
+    pub fn dependencyLazy(self: *@This(), name: []const u8, optimize: std.lang.Optimize, target: std.Build.ResolvedTarget) ?*std.Build.Dependency {
         options.debug("Requesting \"{s}\" lazy dependency", .{name});
         return self.ptrBuilder().dependencyLazy(name, .{
             .optimize = optimize,
@@ -403,7 +412,7 @@ pub const VerboseBuilder = struct {
         }) catch null;
     }
 
-    pub fn verboseDependency(self: *@This(), name: []const u8) *std.Build.Dependency {
+    pub fn verboseDependency(self: *@This(), name: []const u8, optimize: std.lang.Optimize, target: std.Build.ResolvedTarget) *std.Build.Dependency {
         options.debug("Requesting \"{s}\" dependency", .{name});
         return self.ptrBuilder().dependency(name, .{
             .optimize = optimize,
@@ -412,7 +421,7 @@ pub const VerboseBuilder = struct {
         });
     }
 
-    pub fn verboseDependencyLazy(self: *@This(), name: []const u8) ?*std.Build.Dependency {
+    pub fn verboseDependencyLazy(self: *@This(), name: []const u8, optimize: std.lang.Optimize, target: std.Build.ResolvedTarget) ?*std.Build.Dependency {
         options.debug("Requesting \"{s}\" lazy dependency", .{name});
         return self.ptrBuilder().dependencyLazy(name, .{
             .optimize = optimize,
@@ -427,7 +436,7 @@ pub const VerboseBuilder = struct {
         return compile;
     }
 
-    pub fn addExecutable(self: *@This(), name: []const u8) *std.Build.Step.Compile {
+    pub fn addExecutable(self: *@This(), name: []const u8, optimize: std.lang.Optimize, target: std.Build.ResolvedTarget) *std.Build.Step.Compile {
         options.debug("Creating \"{s}\" executable", .{name});
         return self.ptrBuilder().addExecutable(.{
             .name = name,
@@ -438,18 +447,7 @@ pub const VerboseBuilder = struct {
         });
     }
 
-    pub fn addHostExecutable(self: *@This(), name: []const u8) *std.Build.Step.Compile {
-        options.debug("Creating \"{s}\" host executable", .{name});
-        return self.ptrBuilder().addExecutable(.{
-            .name = name,
-            .root_module = std.Build.Module.create(self.ptrBuilder(), .{
-                .optimize = optimize,
-                .target = self.getBuilder().graph.host,
-            }),
-        });
-    }
-
-    pub fn addLibrary(self: *@This(), name: []const u8) *std.Build.Step.Compile {
+    pub fn addLibrary(self: *@This(), name: []const u8, optimize: std.lang.Optimize, target: std.Build.ResolvedTarget) *std.Build.Step.Compile {
         options.debug("Creating \"{s}\" static library", .{name});
         return self.ptrBuilder().addLibrary(.{
             .name = name,
@@ -464,7 +462,7 @@ pub const VerboseBuilder = struct {
 
     pub fn kind(self: *@This(), compile: *std.Build.Step.Compile) []const u8 {
         return switch (compile.kind) {
-            .lib => self.fmt("{s} library", .{std.enums.tagName(std.builtin.LinkMode, compile.linkage.?).?}),
+            .lib => self.fmt("{s} library", .{std.enums.tagName(std.lang.LinkMode, compile.linkage.?).?}),
             .exe => "executable",
             else => @tagName(compile.kind),
         };
@@ -853,7 +851,6 @@ fn checkVersion(builder: *std.Build) !void {
 }
 
 pub fn build(builder: *std.Build) !void {
-    try checkVersion(builder);
     _ = builder.addModule("toolbox", .{
         .root_source_file = builder.addWriteFiles().add("empty.zig", ""),
     });
