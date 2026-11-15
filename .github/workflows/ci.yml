@@ -7,14 +7,9 @@ on:
 
 jobs:
   linter:
-    strategy:
-      matrix:
-        zig-version:
-          - latest
-          - master
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: "${{ github.event.pull_request.head.repo.full_name }}"
           ref: "${{ github.event.pull_request.head.ref }}"
@@ -27,17 +22,14 @@ jobs:
       - name: Setup zig
         uses: mlugg/setup-zig@v2
         with:
-          version: "${{ matrix.zig-version }}"
-          cache-key: "${{ github.job }}_${{ runner.os }}_zig-${{ matrix.zig-version }}_${{ matrix.repo || '' }}"
+          version: 'master'
+          cache-key: "${{ github.job }}_${{ runner.os }}_${{ matrix.repo || '' }}"
       - name: Check zig is canonical
         shell: 'bash'
         run: zig fmt --check .
   user:
     strategy:
       matrix:
-        zig-version:
-          - latest
-          - master
         repo:
           - vulkan
           - wayland
@@ -61,7 +53,7 @@ jobs:
           ( * ) ;;
           esac
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: "${{ github.repository_owner }}/${{ matrix.repo }}.zig"
           ref: "${{ github.event.pull_request.base.ref }}"
@@ -75,8 +67,8 @@ jobs:
       - name: Setup Zig
         uses: mlugg/setup-zig@v2
         with:
-          version: "${{ matrix.zig-version }}"
-          cache-key: "${{ github.job }}_${{ runner.os }}_zig-${{ matrix.zig-version }}_${{ matrix.repo || '' }}_${{ github.repository }}_${{ steps.lastcommit.outputs.sha }}"
+          version: 'master'
+          cache-key: "${{ github.job }}_${{ runner.os }}_${{ matrix.repo || '' }}_${{ github.repository }}_${{ steps.lastcommit.outputs.sha }}"
 
       - name: Activate python virtual env & install pip packages
         if: matrix.repo == 'cimgui'
