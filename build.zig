@@ -804,7 +804,7 @@ pub const VerboseBuilder = struct {
             self.ptrDir().close(io);
             self.ptrDir().* = self.ptrCwd().*;
             self.ptrPrefix().* = "/";
-            self.ptrWalker().deinit();
+            self.ptrWalker().deinit(io);
             self.__walker = null;
         }
 
