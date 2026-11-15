@@ -7,7 +7,7 @@ on:
 
 jobs:
   linter:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,10 +23,12 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 'master'
-          cache-key: "${{ github.job }}_${{ runner.os }}_${{ matrix.repo || '' }}"
+          use-cache: false
       - name: Check zig is canonical
         shell: 'bash'
-        run: zig fmt --check .
+        run: |
+          rm -rf .zig-* zig-* ~/.cache/zig
+          zig fmt --check .
   user:
     strategy:
       matrix:
@@ -36,7 +38,7 @@ jobs:
           - X11
           - glfw
           - cimgui
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Install packages
         env:
@@ -68,7 +70,7 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 'master'
-          cache-key: "${{ github.job }}_${{ runner.os }}_${{ matrix.repo || '' }}_${{ github.repository }}_${{ steps.lastcommit.outputs.sha }}"
+          use-cache: false
 
       - name: Activate python virtual env & install pip packages
         if: matrix.repo == 'cimgui'
@@ -85,7 +87,9 @@ jobs:
         env:
           URL: "git+${{ github.server_url }}/${{ github.event.pull_request.head.repo.full_name }}#${{ github.event.pull_request.head.sha }}"
         shell: 'bash'
-        run: zig fetch --save "${URL}"
+        run: |
+          rm -rf .zig-* zig-* ~/.cache/zig
+          zig fetch --save "${URL}"
 
       - name: Test updating ${{ matrix.repo }}.zig
         env:
@@ -94,7 +98,7 @@ jobs:
         shell: 'bash'
         run: |
           set -x
-          rm -rf .zig-cache ~/.cache/zig
+          rm -rf .zig-* zig-* ~/.cache/zig
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
@@ -117,6 +121,7 @@ jobs:
           opts="${opts#"${opts%%[![:space:]]*}"}"
           opts="${opts%"${opts##*[![:space:]]}"}"
           set -f
+          rm -rf .zig-* zig-* ~/.cache/zig
           case "${REPO}" in
           ( 'cimgui' )
             source "${RUNNER_TMP}/venv/${ACTIVATE_DIR:-Scripts}/activate"
